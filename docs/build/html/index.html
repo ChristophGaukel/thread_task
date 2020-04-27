@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Readme File &mdash; thread_task 0.0.5 documentation</title>
+  <title>Readme &mdash; thread_task 0.0.5 documentation</title>
   
 
   
@@ -93,7 +93,7 @@
             
               <!-- Local TOC -->
               <div class="local-toc"><ul>
-<li><a class="reference internal" href="#">Readme File</a></li>
+<li><a class="reference internal" href="#">Readme</a></li>
 <li><a class="reference internal" href="#examples">Examples</a><ul>
 <li><a class="reference internal" href="#wrapping-a-function-into-a-task-object">Wrapping a function into a Task object</a></li>
 <li><a class="reference internal" href="#building-chains-of-tasks">Building chains of tasks</a></li>
@@ -105,7 +105,13 @@
 </li>
 <li><a class="reference internal" href="#module-thread_task">API documentation</a><ul>
 <li><a class="reference internal" href="#static-methods">Static methods</a></li>
-<li><a class="reference internal" href="#classes">Classes</a></li>
+<li><a class="reference internal" href="#classes">Classes</a><ul>
+<li><a class="reference internal" href="#task">Task</a></li>
+<li><a class="reference internal" href="#sleep">Sleep</a></li>
+<li><a class="reference internal" href="#periodic">Periodic</a></li>
+<li><a class="reference internal" href="#repeated">Repeated</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li><a class="reference internal" href="#index">Index</a></li>
@@ -154,7 +160,7 @@
     
       <li><a href="#">Docs</a> &raquo;</li>
         
-      <li>Readme File</li>
+      <li>Readme</li>
     
     
       <li class="wy-breadcrumbs-aside">
@@ -175,30 +181,33 @@
             
   <div class="toctree-wrapper compound">
 </div>
-<div class="section" id="readme-file">
-<h1>Readme File<a class="headerlink" href="#readme-file" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="readme">
+<h1>Readme<a class="headerlink" href="#readme" title="Permalink to this headline">¶</a></h1>
 <p>thread_task is built on top of
-<span class="raw-html-m2r"><a href="https://docs.python.org/3.8/library/threading.html" title="threading package">threading</a></span>
-and allows to organize tasks and run them parallel. You can:</p>
+<a class="reference external" href="https://docs.python.org/3.8/library/threading.html">threading</a>
+and allows to organize tasks and run them parallel.</p>
+<p>You can:</p>
 <ul class="simple">
 <li>build chains of tasks, which execute tasks sequentially in a single thread</li>
-<li>build parent child dependencies, which allows to contruct trees of tasks</li>
-<li>stop tasks, which also stops the execution of descendant tasks</li>
-<li>continue tasks, which also continues the execution of descendant tasks</li>
+<li>build parent child dependencies, which allows to construct trees of tasks</li>
+<li>stop tasks, which also stops the execution of child tasks</li>
+<li>continue tasks, which also continues the execution of child tasks</li>
 <li>restart finished or stopped tasks</li>
-<li>join tasks, which means wait until the task and its descentants are finished</li>
+<li>join tasks, which means waiting until the task and its children are finished</li>
 </ul>
 <p>A thread_task is not like a function, it doesn’t return results. Think
 of it as an instruction to a reliable but independently acting
 person. If feedback is needed, this can be done by callback
-functions. You can also use mutable objects, which multiple tasks get
+functions. You can also use mutable objects, which tasks get in
 as arguments.</p>
 <p>The following task types exist:</p>
 <ul class="simple">
 <li>Task: Executes a single task or a chain of tasks</li>
 <li>Repeated: Executes a task multiple times.</li>
 <li>Periodic: Executes a task periodically</li>
-<li>Sleep: sleeps for a given time, is similar to time.sleep, but can be stopped and continued</li>
+<li>Sleep: sleeps for a given time, is similar to
+<a class="reference external" href="https://docs.python.org/3.8/library/time.html#time.sleep">time.sleep</a>,
+but can be stopped and continued</li>
 </ul>
 </div>
 <div class="section" id="examples">
@@ -606,7 +615,7 @@ which can be stopped, continued and restarted.</p>
 <h2>Static methods<a class="headerlink" href="#static-methods" title="Permalink to this headline">¶</a></h2>
 <dl class="function">
 <dt id="thread_task.concat">
-<code class="descclassname">thread_task.</code><code class="descname">concat</code><span class="sig-paren">(</span><em>*tasks: thread_task.task.Task</em>, <em>copy: bool = False</em><span class="sig-paren">)</span> &#x2192; thread_task.task.Task<a class="reference internal" href="_modules/thread_task.html#concat"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.concat" title="Permalink to this definition">¶</a></dt>
+<code class="descclassname">thread_task.</code><code class="descname">concat</code><span class="sig-paren">(</span><em>*tasks: thread_task.Task</em>, <em>copy: bool = False</em><span class="sig-paren">)</span> &#x2192; thread_task.Task<a class="reference internal" href="_modules/thread_task.html#concat"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.concat" title="Permalink to this definition">¶</a></dt>
 <dd><p>Concats a number of Task objects and returns a chain of tasks.
 This modifies the Task objects. If you need them unchanged,
 set the copy flag.</p>
@@ -629,9 +638,11 @@ set the copy flag.</p>
 </div>
 <div class="section" id="classes">
 <h2>Classes<a class="headerlink" href="#classes" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="task">
+<h3>Task<a class="headerlink" href="#task" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="thread_task.Task">
-<em class="property">class </em><code class="descclassname">thread_task.</code><code class="descname">Task</code><span class="sig-paren">(</span><em>action: typing.Callable</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/thread_task/task.html#Task"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task" title="Permalink to this definition">¶</a></dt>
+<em class="property">class </em><code class="descclassname">thread_task.</code><code class="descname">Task</code><span class="sig-paren">(</span><em>action: typing.Callable</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/thread_task.html#Task"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task" title="Permalink to this definition">¶</a></dt>
 <dd><p>Uses multithreading for tasks or chains of tasks.
 The most simple case is a callable object.
 Subsequent tasks or chains of tasks can be added with method append().</p>
@@ -673,13 +684,13 @@ which is called when task is continued.</dd>
 </dl>
 <dl class="method">
 <dt id="thread_task.Task.append">
-<code class="descname">append</code><span class="sig-paren">(</span><em>*tasks</em>, <em>copy=False</em><span class="sig-paren">)</span> &#x2192; thread_task.task.Task<a class="reference internal" href="_modules/thread_task/task.html#Task.append"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task.append" title="Permalink to this definition">¶</a></dt>
+<code class="descname">append</code><span class="sig-paren">(</span><em>*tasks</em>, <em>copy=False</em><span class="sig-paren">)</span> &#x2192; thread_task.Task<a class="reference internal" href="_modules/thread_task.html#Task.append"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task.append" title="Permalink to this definition">¶</a></dt>
 <dd><p>appends a task or a chain of tasks (both must be root tasks)</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="thread_task.Task.cont">
-<code class="descname">cont</code><span class="sig-paren">(</span><em>delay: numbers.Number = None</em><span class="sig-paren">)</span> &#x2192; thread_task.task.Task<a class="reference internal" href="_modules/thread_task/task.html#Task.cont"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task.cont" title="Permalink to this definition">¶</a></dt>
+<code class="descname">cont</code><span class="sig-paren">(</span><em>delay: numbers.Number = None</em><span class="sig-paren">)</span> &#x2192; thread_task.Task<a class="reference internal" href="_modules/thread_task.html#Task.cont"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task.cont" title="Permalink to this definition">¶</a></dt>
 <dd><p>continues a stopped task (must be a root task)</p>
 <dl class="docutils">
 <dt>Keyword Arguments:</dt>
@@ -693,13 +704,13 @@ which is called when task is continued.</dd>
 
 <dl class="method">
 <dt id="thread_task.Task.join">
-<code class="descname">join</code><span class="sig-paren">(</span><span class="sig-paren">)</span> &#x2192; None<a class="reference internal" href="_modules/thread_task/task.html#Task.join"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task.join" title="Permalink to this definition">¶</a></dt>
+<code class="descname">join</code><span class="sig-paren">(</span><span class="sig-paren">)</span> &#x2192; None<a class="reference internal" href="_modules/thread_task.html#Task.join"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task.join" title="Permalink to this definition">¶</a></dt>
 <dd><p>joins the thread of the task</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="thread_task.Task.start">
-<code class="descname">start</code><span class="sig-paren">(</span><em>delay: numbers.Number = None</em><span class="sig-paren">)</span> &#x2192; thread_task.task.Task<a class="reference internal" href="_modules/thread_task/task.html#Task.start"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task.start" title="Permalink to this definition">¶</a></dt>
+<code class="descname">start</code><span class="sig-paren">(</span><em>delay: numbers.Number = None</em><span class="sig-paren">)</span> &#x2192; thread_task.Task<a class="reference internal" href="_modules/thread_task.html#Task.start"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task.start" title="Permalink to this definition">¶</a></dt>
 <dd><p>starts execution of task
 (finished or stopped tasks may be started again)</p>
 <dl class="docutils">
@@ -714,7 +725,7 @@ which is called when task is continued.</dd>
 
 <dl class="method">
 <dt id="thread_task.Task.stop">
-<code class="descname">stop</code><span class="sig-paren">(</span><span class="sig-paren">)</span> &#x2192; None<a class="reference internal" href="_modules/thread_task/task.html#Task.stop"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task.stop" title="Permalink to this definition">¶</a></dt>
+<code class="descname">stop</code><span class="sig-paren">(</span><span class="sig-paren">)</span> &#x2192; None<a class="reference internal" href="_modules/thread_task.html#Task.stop"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Task.stop" title="Permalink to this definition">¶</a></dt>
 <dd><p>Stops execution as fast as possible.  Allows to continue with
 method <code class="docutils literal"><span class="pre">cont()</span></code> or restart with method <code class="docutils literal"><span class="pre">start()</span></code>.  Already
 finished tasks silently do nothing</p>
@@ -824,9 +835,12 @@ is in the format of time.time()</p>
 
 </dd></dl>
 
+</div>
+<div class="section" id="sleep">
+<h3>Sleep<a class="headerlink" href="#sleep" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="thread_task.Sleep">
-<em class="property">class </em><code class="descclassname">thread_task.</code><code class="descname">Sleep</code><span class="sig-paren">(</span><em>seconds: numbers.Number</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/thread_task/sleep.html#Sleep"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Sleep" title="Permalink to this definition">¶</a></dt>
+<em class="property">class </em><code class="descclassname">thread_task.</code><code class="descname">Sleep</code><span class="sig-paren">(</span><em>seconds: numbers.Number</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/thread_task.html#Sleep"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Sleep" title="Permalink to this definition">¶</a></dt>
 <dd><p>Sleeps and can be stopped</p>
 <dl class="docutils">
 <dt>Positional Arguments:</dt>
@@ -834,9 +848,12 @@ is in the format of time.time()</p>
 </dl>
 </dd></dl>
 
+</div>
+<div class="section" id="periodic">
+<h3>Periodic<a class="headerlink" href="#periodic" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="thread_task.Periodic">
-<em class="property">class </em><code class="descclassname">thread_task.</code><code class="descname">Periodic</code><span class="sig-paren">(</span><em>intervall: numbers.Number</em>, <em>action: typing.Callable</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/thread_task/periodic.html#Periodic"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Periodic" title="Permalink to this definition">¶</a></dt>
+<em class="property">class </em><code class="descclassname">thread_task.</code><code class="descname">Periodic</code><span class="sig-paren">(</span><em>intervall: numbers.Number</em>, <em>action: typing.Callable</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/thread_task.html#Periodic"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Periodic" title="Permalink to this definition">¶</a></dt>
 <dd><p>Uses multithreading for periodic actions (control comes back immediately).</p>
 <dl class="docutils">
 <dt>Positional Arguments:</dt>
@@ -886,9 +903,12 @@ is in the format of time.time()</p>
 </dl>
 </dd></dl>
 
+</div>
+<div class="section" id="repeated">
+<h3>Repeated<a class="headerlink" href="#repeated" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="thread_task.Repeated">
-<em class="property">class </em><code class="descclassname">thread_task.</code><code class="descname">Repeated</code><span class="sig-paren">(</span><em>action: typing.Callable</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/thread_task/repeated.html#Repeated"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Repeated" title="Permalink to this definition">¶</a></dt>
+<em class="property">class </em><code class="descclassname">thread_task.</code><code class="descname">Repeated</code><span class="sig-paren">(</span><em>action: typing.Callable</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/thread_task.html#Repeated"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#thread_task.Repeated" title="Permalink to this definition">¶</a></dt>
 <dd><p>Organizes repeated actions with multithreading</p>
 <dl class="docutils">
 <dt>Positional Arguments:</dt>
@@ -937,6 +957,7 @@ is in the format of time.time()</p>
 </dl>
 </dd></dl>
 
+</div>
 </div>
 </div>
 <div class="section" id="index">
