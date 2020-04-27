@@ -1,0 +1,299 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>thread_task &mdash; thread_task 0.0.5 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="../_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript">
+          var DOCUMENTATION_OPTIONS = {
+              URL_ROOT:'../',
+              VERSION:'0.0.5',
+              LANGUAGE:'None',
+              COLLAPSE_INDEX:false,
+              FILE_SUFFIX:'.html',
+              HAS_SOURCE:  true,
+              SOURCELINK_SUFFIX: '.txt'
+          };
+      </script>
+        <script type="text/javascript" src="../_static/jquery.js"></script>
+        <script type="text/javascript" src="../_static/underscore.js"></script>
+        <script type="text/javascript" src="../_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../index.html" class="icon icon-home"> thread_task
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                0.0.5
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <!-- Local TOC -->
+              <div class="local-toc"></div>
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">thread_task</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../index.html">Docs</a> &raquo;</li>
+        
+          <li><a href="index.html">Module code</a> &raquo;</li>
+        
+      <li>thread_task</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <h1>Source code for thread_task</h1><div class="highlight"><pre>
+<span></span><span class="ch">#!/usr/bin/env python3</span>
+<span class="sd">&#39;&#39;&#39;organize and run thread tasks,</span>
+<span class="sd">which can be stopped, continued and restarted.</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="kn">import</span> <span class="nn">copy</span>
+
+<span class="kn">from</span> <span class="nn">.constants</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">STATE_INIT</span><span class="p">,</span>
+    <span class="n">STATE_TO_START</span><span class="p">,</span>
+    <span class="n">STATE_STARTED</span><span class="p">,</span>
+    <span class="n">STATE_TO_STOP</span><span class="p">,</span>
+    <span class="n">STATE_STOPPED</span><span class="p">,</span>
+    <span class="n">STATE_TO_CONTINUE</span><span class="p">,</span>
+    <span class="n">STATE_FINISHED</span><span class="p">,</span>
+    <span class="n">ACTIVITY_BUSY</span><span class="p">,</span>
+    <span class="n">ACTIVITY_JOIN</span><span class="p">,</span>
+    <span class="n">ACTIVITY_NONE</span><span class="p">,</span>
+    <span class="n">ACTIVITY_SLEEP</span>
+<span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">.task</span> <span class="kn">import</span> <span class="n">Task</span>
+<span class="kn">from</span> <span class="nn">.sleep</span> <span class="kn">import</span> <span class="n">Sleep</span>
+<span class="kn">from</span> <span class="nn">.repeated</span> <span class="kn">import</span> <span class="n">Repeated</span>
+<span class="kn">from</span> <span class="nn">.periodic</span> <span class="kn">import</span> <span class="n">Periodic</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s1">&#39;Task&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;Sleep&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;Periodic&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;Repeated&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;STATE_INIT&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;STATE_TO_START&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;STATE_STARTED&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;STATE_TO_STOP&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;STATE_STOPPED&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;STATE_TO_CONTINUE&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;STATE_FINISHED&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;ACTIVITY_BUSY&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;ACTIVITY_JOIN&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;ACTIVITY_NONE&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;ACTIVITY_SLEEP&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;concat&#39;</span>
+<span class="p">]</span>
+
+
+<span class="k">def</span> <span class="nf">_copy_task</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="s1">&#39;Task&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;Task&#39;</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    copies a task</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="n">task</span><span class="o">.</span><span class="n">_root</span> <span class="ow">is</span> <span class="n">task</span><span class="p">,</span> <span class="s1">&#39;copying root tasks only&#39;</span>
+
+    <span class="c1"># copy root task</span>
+    <span class="n">root</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
+    <span class="n">root</span><span class="o">.</span><span class="n">_root</span> <span class="o">=</span> <span class="n">root</span>
+    <span class="n">root</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">STATE_INIT</span>
+    <span class="n">root</span><span class="o">.</span><span class="n">_activity</span> <span class="o">=</span> <span class="n">ACTIVITY_NONE</span>
+    <span class="n">root</span><span class="o">.</span><span class="n">_current</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">root</span><span class="o">.</span><span class="n">_parent</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># copy chain links and build linked list of tasks</span>
+    <span class="n">previous</span> <span class="o">=</span> <span class="n">root</span>
+    <span class="k">while</span> <span class="n">previous</span><span class="o">.</span><span class="n">_next</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># copy chain link</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">previous</span><span class="o">.</span><span class="n">_next</span><span class="p">)</span>
+        <span class="n">current</span><span class="o">.</span><span class="n">_root</span> <span class="o">=</span> <span class="n">root</span>
+        <span class="c1"># use old links to identify last chain link</span>
+        <span class="k">if</span> <span class="n">root</span><span class="o">.</span><span class="n">_last</span> <span class="ow">is</span> <span class="n">previous</span><span class="o">.</span><span class="n">_next</span><span class="p">:</span>
+            <span class="n">root</span><span class="o">.</span><span class="n">_last</span> <span class="o">=</span> <span class="n">current</span>
+        <span class="n">previous</span><span class="o">.</span><span class="n">_next</span> <span class="o">=</span> <span class="n">current</span>  <span class="c1"># replace link</span>
+        <span class="n">previous</span> <span class="o">=</span> <span class="n">current</span>  <span class="c1"># one step forewards</span>
+
+    <span class="k">return</span> <span class="n">root</span>
+
+
+<div class="viewcode-block" id="concat"><a class="viewcode-back" href="../index.html#thread_task.concat">[docs]</a><span class="k">def</span> <span class="nf">concat</span><span class="p">(</span><span class="o">*</span><span class="n">tasks</span><span class="p">:</span> <span class="s1">&#39;Task&#39;</span><span class="p">,</span> <span class="n">copy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;Task&#39;</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Concats a number of Task objects and returns a chain of tasks.</span>
+<span class="sd">    This modifies the Task objects. If you need them unchanged,</span>
+<span class="sd">    set the copy flag.</span>
+
+<span class="sd">    Positional Arguments:</span>
+<span class="sd">        \*tasks:</span>
+<span class="sd">            any number of Task objects</span>
+
+<span class="sd">    Keyword Arguments:</span>
+<span class="sd">        copy:</span>
+<span class="sd">            Flag, if resulting Task objects will be copied</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">copy</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">tasks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="o">*</span><span class="n">tasks</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span>
+            <span class="n">copy</span><span class="o">=</span><span class="n">copy</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_copy_task</span><span class="p">(</span>
+            <span class="n">tasks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="o">*</span><span class="n">tasks</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span>
+            <span class="n">copy</span><span class="o">=</span><span class="n">copy</span>
+        <span class="p">)</span></div>
+</pre></div>
+
+           </div>
+           
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2020, Christoph Gaukel
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
