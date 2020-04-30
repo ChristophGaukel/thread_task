@@ -184,7 +184,7 @@ practically no difference.
    
 Here we did not use an anonymous Task object. We referenced it with
 variable **t**. The reference allows us to get or set
-arguments. Setting arguments mofifies the Task. The reference is also
+arguments. Setting arguments modifies the Task. The reference is also
 needed to stop or continue the Task object.
 
 We use the attributes **action_stop** and **args_stop** to add special
@@ -340,16 +340,17 @@ Tree structured Tasks
 ---------------------
 
 Task objects can not only be structured as chains, but also as
-trees. When a chain link of a Task object calls method **start** of
-another Task oject, this creates a parent-child dependency between
-them and forms a tree structure of Task objects. The special benefit
-is, that any call of parent methods **stop** or **cont** will also be
-passed to the child.  This allows to stop and continue the whole
-structure. We can encapsulate complex dependencies behind a very
-simple API and we use only four methods for its execution: start,
-stop, cont and join. All of them we have seen already.
+trees. Tree structures allow parallel execution inside of Tasks. When
+a chain link of a Task object calls method **start** of another Task
+object, this creates a parent-child dependency between them and forms
+a tree structure of Task objects. The special benefit is, that any
+call of parent's methods **stop** or **cont** will be passed to the
+child. This allows to stop and continue the whole structure. We can
+encapsulate complex dependencies behind a very simple API and we use
+only four methods for its execution: start, stop, cont and join. All
+of them we have seen already.
 
-.. code:: python
+.. code:: python3
 
     from thread_task import Task, Periodic, concat
     from datetime import datetime
@@ -380,107 +381,377 @@ stop, cont and join. All of them we have seen already.
             return False
     
     
-    t_set = Task(
-        set_data,  # action
-        args=(data, 'on'),
-        action_stop=print_it,
-        args_stop=('*** t_set has been stopped',),
-        action_cont=print_it,
-        args_cont=('*** t_set has been continued',)
-        )
-    
-    t_get = Periodic(
-        1,  # intervall
-        get_data,  # action
-        args=(data,),
-        action_stop=print_it,
-        args_stop=('*** t_get has been stopped',),
-        action_cont=print_it,
-        args_cont=('*** t_get has been continued',),
-    )
-    
-    t_manage = concat(
+    t_set = concat(
         Task(
-            t_get.start,  # action -- method start of a Periodic
+            set_data,
+            args=(data, 'on'),
             action_stop=print_it,
-            args_stop=('*** t_manage has been stopped',),
+            args_stop=('*** t_set has been stopped',),
             action_cont=print_it,
-            args_cont=('*** t_manage has been continued',),
+            args_cont=('*** t_set has been continued',)
         ),
         Task(
-            t_set.start,  # action -- method start of a Task
-            args=(4.5,),  # delay
+            print_it,
+            args=('t_set has finished',)
         )
     )
     
-    t_manage.start()
+    t = concat(
+        Task(
+            t_set.start,
+            args=(4.5,),
+            action_stop=print_it,
+            args_stop=('*** t has been stopped',),
+            action_cont=print_it,
+            args_cont=('*** t has been continued',),
+        ),
+        Periodic(
+            1,
+            get_data,
+            args=(data,)
+        ),
+        Task(
+            print_it,
+            args=('t has finished',)
+        )
+    )
+    
+    t.start()
     sleep(1.5)
-    t_manage.stop()
+    t.stop()
     sleep(3.5)
-    t_manage.cont().join()
-    print_it('*** t_manage has finished')
-
-This is a bit more complex than the other examples! We create 3 Task objects
-**t_set**, **t_get** and **t_manage** and **t_manage** becomes parent of
-**t_get** and **t_set**.
+    t.cont()
+    
+This is a bit more complex than the other examples! We create 2 Task
+objects **t_set**, and **t** and **t** becomes parent of **t_set**.
 
 **data** is a mutable data object. We use it for the communication
-between tasks **t_set** and **t_get**. Function **set_data**
-writes values to the data obeject, function **get_data** reads them.
-In our case, **get_data** is wrapped into **t_get**, which is a **Periodic**, called once per second.
-If **get_data** finds the value ``on``, it returns ``True``, which ends the **Periodic**.
-**set_data** is wrapped into **t_set**, a **Task** object that sets the data object to ``on``.
+between tasks. Function **set_data** writes values to the data
+obeject, function **get_data** reads them.  In our case, get_data is
+wrapped into a Periodic and will be called once per second.  If
+get_data finds the value ``on``, it returns ``True``, which ends the
+Periodic.  set_data is wrapped into t_set, a Task object that sets the
+data object to ``on``.
 
-**t_manage** starts **t_get** and then **t_set**, the second with a delay of 4.5 sec. We added
-some text output to all three Task objects, which help us to understand, whats happening.
+t starts t_set with a delay of 4.5 sec. We added some text output to
+the Task objects, which help us to understand, whats happening.
 
 The output was:
 
 ::
 
-    17:42:53.385352 switch is off
-    17:42:54.385314 switch is off
-    17:42:54.887189 *** t_set has been stopped
-    17:42:54.887581 *** t_get has been stopped
-    17:42:54.888227 *** t_manage has been stopped
-    17:42:58.392112 *** t_manage has been continued
-    17:42:58.392906 *** t_get has been continued
-    17:42:58.889869 switch is off
-    17:42:59.889856 switch is off
-    17:43:00.889843 switch is off
-    17:43:01.393279 *** t_set has been continued
-    17:43:01.393537 set switch to on
-    17:43:01.889842 switch is on
-    17:43:01.890447 *** t_manage has finished
+    17:17:17.191292 switch is off
+    17:17:18.191582 switch is off
+    17:17:18.692961 *** t_set has been stopped
+    17:17:18.693441 *** t has been stopped
+    17:17:22.197571 *** t has been continued
+    17:17:22.695968 switch is off
+    17:17:23.695969 switch is off
+    17:17:24.695989 switch is off
+    17:17:25.196958 *** t_set has been continued
+    17:17:25.197253 set switch to on
+    17:17:25.197407 t_set has finished
+    17:17:25.695987 switch is on
+    17:17:25.696277 t has finished
     
-The first two rows were printed by **get_data** and
-found the data object in its initial state. As
-expected, there was a timespan of 1 sec. between
-these two printings.
+The first two rows were printed by **get_data** and found the data
+object in its initial state. As expected, there was a timespan of 1
+sec. between these two printings.
 
-1.5 sec. after starting
-**t_manage**, we stopped it and **t_manage**
-stopped its two children before it stopped itself.
-These three stoppings happend within a very short time.
+1.5 sec. after starting **t**, we stopped it and **t** stopped its
+child **t_set** before it stopped itself.  These two stoppings happend
+within a very short time.
 
-Another 3.5 sec. later we continued **t_manage** and
-it continued its two children.
-**t_get** *remebers*, it was stopped in the middle of two
-actions. This makes it to wait 0.5 sec. until its next
-call of **get_data**.
-**t_set** had a rest
-delay of 3 sec., which made it answer this timespan
-after its continuation. Directly after this
-first reaction, it called **set_data**, which
-changed the data object.
+Another 3.5 sec. later we continued **t** and it continued its child.
+**t** *remebers*, it was stopped in the middle of two actions of its
+Periodic. This makes it to wait 0.5 sec. until its next call of
+**get_data**.  **t_set** had a rest delay of 3 sec., which made it
+answer this timespan after its continuation. Directly after this first
+reaction, it called **set_data**, which changed the data object, then
+it finished.
 
-When **get_data** came to its next reading, it found
-the switch ``on`` and returned ``True``. This
-ended Periodic **t_set**, the last living child thread.
-Joining **t_manage** allowed us to print a final message,
-when all threads have ended.
+When **get_data** came to its next reading, it found the switch ``on``
+and returned ``True``. This ended the Periodic and the final printing
+came from the last chain link in **t**.
 
 
+Error Handling
+==============
+
+Error handling in Task objects is a bit special and it's worth to take
+some minutes to get the concept.
+
+Exceptions are handled per thread
+---------------------------------
+
+Multithreading handles exceptions per thread! If an exception is raised in
+one of the threads, this does not concern the other ones.
+
+.. code:: python3
+
+    from thread_task import Task
+    
+    
+    def raise_error():
+        raise RuntimeError
+    
+    
+    t1 = Task(
+        print,
+        args=('t1 finished regularly',)
+    )
+    
+    t2 = Task(raise_error)
+    
+    t1.start(1)
+    t2.start()
+
+This program starts 2 Tasks and one of them raises an
+error. Raising RuntimeError will concern Task t1, but
+not Task t2 nor the main program execution.
+
+The output was:
+
+::
+
+   Exception in thread Thread-2:
+    Traceback (most recent call last):
+      File "/usr/lib/python3.6/threading.py", line 916, in _bootstrap_inner
+        self.run()
+      File "/usr/lib/python3.6/threading.py", line 864, in run
+        self._target(*self._args, **self._kwargs)
+      File "/home/christoph/.local/lib/python3.6/site-packages/thread_task/__init__.py", line 374, in _start2
+        self._execute()
+      File "/home/christoph/.local/lib/python3.6/site-packages/thread_task/__init__.py", line 641, in _execute
+        self._handle_exc(exc)
+      File "/home/christoph/.local/lib/python3.6/site-packages/thread_task/__init__.py", line 242, in _handle_exc
+        raise exc
+      File "/home/christoph/.local/lib/python3.6/site-packages/thread_task/__init__.py", line 639, in _execute
+        gap = self._wrapper()
+      File "/home/christoph/.local/lib/python3.6/site-packages/thread_task/__init__.py", line 696, in _wrapper
+        self._action(*self._args, **self._kwargs)
+      File "./test_error_01", line 8, in raise_error
+        raise RuntimeError
+    RuntimeError
+    
+    t1 finished regularly
+
+Indeed, the main program execution and t1 finish regularly, even when
+t2 raised an exception.
+
+Default exception handler
+-------------------------
+
+Task objects have a default exception handler:
+
+.. automethod:: thread_task.Task._handle_exc
+
+The default exception handler calls method stop of the Task object
+(later we will learn, which Task object), then raises the
+exception. We demonstrate this by an example.
+
+.. code:: python3
+
+    from thread_task import Task
+
+
+    def raise_error():
+        raise RuntimeError
+    
+    
+    Task(
+        raise_error,
+        action_stop=print,
+        args_stop=('t has been stopped',)
+    ).start()
+
+produced this output:
+
+::
+
+    t has been stopped
+    Exception in thread Thread-1:
+    Traceback (most recent call last):
+      File "/usr/lib/python3.6/threading.py", line 916, in _bootstrap_inner
+        self.run()
+      File "/usr/lib/python3.6/threading.py", line 864, in run
+        self._target(*self._args, **self._kwargs)
+      File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 377, in _start2
+        self._execute()
+      File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 649, in _execute
+        self._handle_exc(exc)
+      File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 244, in _handle_exc
+        raise exc
+      File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 647, in _execute
+        gap = self._wrapper()
+      File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 704, in _wrapper
+        self._action(*self._args, **self._kwargs)
+      File "./test_error_02", line 8, in raise_error
+        raise RuntimeError
+    RuntimeError
+    
+The first line shows, that method stop was called. The Task ends in
+STATE_STOPPED. It can be restarted, but not continued.
+
+If your Task object is structured as a chain or tree, the exception handler
+with the highets priority will be called. We start with the exception handler of
+the chain link, where the exception occured and then recusively do:
+
+- if there is an explicitly setted exc_handler: call it
+- if the current position is not the root link of a chain: call the exception handler of the root link.
+- if the current position is a child Task: call the exception handler of the parent Task's root link.
+- call the default exception handler of the current position, which does stopping at the current
+  position, then raises the exception.
+
+In other words: Climbs up the hierarchy of the structure. If, on
+its way, it finds an explicitly setted exc_handler, it calls it. If it
+doesn't find any, then it calls the default exception handler at the
+top of the hierarchy, which does stopping at the top of the hierarchy
+and then raises the exception.
+
+User defined exception handlers
+-------------------------------
+
+At any position in the hierarchical structure of a Task object, you
+can implement your own exc_handler.
+
+.. code:: python3
+
+    from thread_task import Task, concat
+    
+    
+    def raise_error():
+        raise RuntimeError
+    
+    
+    def my_exc_handler(exc: Exception):
+        t_parent.stop()
+        raise exc
+    
+    
+    t_child = concat(
+        Task(
+            print,
+            args=('t_child has been started',),
+            action_stop=print,
+            args_stop=('t_child has been stopped',)
+        ),
+        Task(
+            raise_error
+        ),
+        Task(
+            print,
+            args=('t_child finished regularly',)
+        )
+    )
+    
+    t_parent = concat(
+        Task(
+            print,
+            args=('t_parent has been started',),
+            action_stop=print,
+            args_stop=('t_parent has been stopped',),
+            exc_handler=my_exc_handler
+        ),
+        Task(
+            t_child.start,
+            duration=.1
+        ),
+        Task(
+            print,
+            args=('t_parent finished regularly',)
+        )
+    ).start()
+
+Here, **my_exc_handler** is placed on the top of the hierarchy, which
+is the root link of the parent Task. The 2nd chain link of
+**t_parent** starts **t_child** and the 2nd chain link of t_child
+calls **raise_error**, which raises ``RuntimeError``. Setting a short
+**duration** in the 2nd chain link of t_parent allows to stop t_parent
+before it prints its final message.
+
+The output:
+
+::
+
+   t_parent has been started
+   t_child has been started
+   t_child has been stopped
+   Exception in thread Thread-2:
+   Traceback (most recent call last):
+     File "/usr/lib/python3.6/threading.py", line 916, in _bootstrap_inner
+       self.run()
+     File "/usr/lib/python3.6/threading.py", line 864, in run
+       self._target(*self._args, **self._kwargs)
+     File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 383, in _start2
+       self._execute()
+     File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 713, in _execute
+       self._next._execute()
+     File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 657, in _execute
+       self._handle_exc(exc)
+     File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 249, in _handle_exc
+       self._root._handle_exc(exc)
+     File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 252, in _handle_exc
+       self._parents[self]._handle_exc(exc)
+     File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 246, in _handle_exc
+       self._exc_handler(exc)
+     File "./test_error_03", line 13, in my_exc_handler
+       raise exc
+     File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 652, in _execute
+       gap = self._wrapper()
+     File "/home/christoph/src/python3/tmp/thread_task/__init__.py", line 724, in _wrapper
+       self._action(*self._args, **self._kwargs)
+     File "./test_error_03", line 8, in raise_error
+       raise RuntimeError
+   RuntimeError
+   
+   t_parent has been stopped
+
+Thread-2 is the child's thread, where the exception occured. All the
+error handling is done under control of this thread and raising the
+exception ends only this thread.
+   
+Here, **my_exc_handler** does exactly, what the default exception
+handler would have done. But setting an exc_handler allows to do
+other things too, e.g. protocol into an error tracking tool.
+
+If we want the Task stop silently, we replace my_exc_handler with:
+
+.. code:: python3
+
+    def my_exc_handler(exc: Exception):
+        t_parent.stop()
+
+and get this output:
+
+::
+
+   t_parent has been started
+   t_child has been started
+   t_child has been stopped
+   t_parent has been stopped
+
+We can even ignore the exception with:
+
+.. code:: python3
+
+    def my_exc_handler(exc: Exception):
+        pass
+
+If the exception handler does not raise an exception, t_child (which
+is run by Thread-2) continues as if no exception occured. Here, it
+waits until duration is over and then executes its next chain link.
+
+The output was:
+
+::
+    
+   t_parent has been started
+   t_child has been started
+   t_child finished regularly
+   t_parent finished regularly
+
+   
 API documentation
 =================
 .. automodule:: thread_task

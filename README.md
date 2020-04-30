@@ -15,7 +15,13 @@ functions. You can also use mutable objects, which tasks get in
 as arguments.
 
 The following task types exist:
-- Task: Executes a single task or a chain of tasks
+- Task: Executes a single task or a chain of tasks.
 - Repeated: Executes a task multiple times.
-- Periodic: Executes a task periodically
-- Sleep: sleeps for a given time, is similar to time.sleep, but can be stopped and continued
+- Periodic: Executes a task periodically.
+- Sleep: sleeps for a given time, is similar to
+[time.sleep](https://docs.python.org/3.8/library/time.html#time.sleep "time.sleep"),
+but can be stopped and continued.
+
+See
+[thread-task.readthedocs.io](https://thread-task.readthedocs.io/en/latest/ "thread_task")
+for more details.
