@@ -55,6 +55,7 @@ def _copy_task(task: 'Task') -> 'Task':
     root._state = STATE_INIT
     root._activity = ACTIVITY_NONE
     root._current = None
+    root._current_scheduled = None
     root._parent = None
 
     # copy chain links and build linked list of tasks
@@ -123,6 +124,13 @@ class Task:
                 argument list of action
             kwargs: dict={}
                 keyword arguments of action
+            action_start: typing.Callable=None
+                object (f.i. a function),
+                which is called when task is started.
+            args_start: tuple=()
+                argument list of action_start
+            kwargs_start: dict={}
+                keyword arguments of action_start
             action_stop: typing.Callable=None
                 object (f.i. a function),
                 which is called when task is stopped.
@@ -137,28 +145,49 @@ class Task:
                 argument list of action_cont
             kwargs_cont: dict={}
                 keyword arguments of action_cont
-            join: bool=False
-                flag if contained task will be joined
+            action_final: typing.Callable=None
+                object (f.i. a function),
+                which is called when task is finished.
+            args_final: tuple=()
+                argument list of action_final
+            kwargs_final: dict={}
+                keyword arguments of action_final
             duration: Number=None
                 duration of task (if action returns earlier, task will wait)
+            join: bool=False
+                flag, if child will be joined
             exc_handler: typing.Callable=None
                 user defined handler of exceptions
         """
         self._action = action
         self._args = kwargs.pop('args', ())
         self._kwargs = kwargs.pop('kwargs', {})
-        self._join = kwargs.pop('join', False)
         self._duration = kwargs.pop('duration', None)
-        self._num = kwargs.pop('num', 0)
+        self._duration_rest: bool = False  # stopped while sleeping
+        self._join: bool = kwargs.pop('join', False)
+        self._gap = None  # stopped while sleeping
+        self._num = kwargs.pop('num', None)
+        self._exc_handler = kwargs.pop('exc_handler', None)
 
         self._next = None  # next Task in linked list
         self._root = self  # root Task
-        self._time_end = None  # scheduled ending time
         self._netto_time = False
         self._cnt = 0  # number of action executions
-        self._exc = None  # exception occured
 
         # the following are root only attributes
+        self._action_start = kwargs.pop('action_start', None)
+        self._args_start = kwargs.pop('args_start', ())
+        self._kwargs_start = kwargs.pop('kwargs_start', {})
+        self._action_stop = kwargs.pop('action_stop', None)
+        self._args_stop = kwargs.pop('args_stop', ())
+        self._kwargs_stop = kwargs.pop('kwargs_stop', {})
+        self._action_cont = kwargs.pop('action_cont', None)
+        self._args_cont = kwargs.pop('args_cont', ())
+        self._kwargs_cont = kwargs.pop('kwargs_cont', {})
+        self._action_final = kwargs.pop('action_final', None)
+        self._args_final = kwargs.pop('args_final', ())
+        self._kwargs_final = kwargs.pop('kwargs_final', {})
+
         self._state = STATE_INIT
         self._activity = ACTIVITY_NONE
         self._thread = None
@@ -168,28 +197,32 @@ class Task:
         self._lock = Lock()
         self._cond = Condition(self._lock)
         self._current = None  # current Task object
+        self._current_scheduled = None  # scheduled time
         self._last = None  # last Task object in chain
         self._time_called_start = None  # time of last starting
         self._time_called_cont = None  # time of last continuing
         self._time_called_stop = None  # time of last stopping
-        self._time_action = None  # scheduled time of next action
         self._contained = []  # child tasks
         self._cont_join = None
-        self._action_stop = kwargs.pop('action_stop', None)
-        self._args_stop = kwargs.pop('args_stop', ())
-        self._kwargs_stop = kwargs.pop('kwargs_stop', {})
-        self._action_cont = kwargs.pop('action_cont', None)
-        self._args_cont = kwargs.pop('args_cont', ())
-        self._kwargs_cont = kwargs.pop('kwargs_cont', {})
-        self._exc_handler = kwargs.pop('exc_handler', None)
+        self._exc = None  # exception occured
         self._delay = None  # additional timespan in start or cont
 
-        assert not kwargs, 'unknown keyword arguments: ' + str(kwargs.keys())
         assert isinstance(self._action, Callable), \
             "action needs to be a callable"
         assert isinstance(self._args, tuple), 'args needs to be a tuple'
+        assert not kwargs, 'unknown keyword arguments: ' + str(kwargs.keys())
         assert isinstance(self._kwargs, dict), \
             'kwargs needs to be a dictionary'
+
+        assert (
+            self._action_start is None or
+            isinstance(self._action_start, Callable)
+        ), "action_start needs to be a callable"
+        assert isinstance(self._args_start, tuple), \
+            'args_start needs to be a tuple'
+        assert isinstance(self._kwargs_start, dict), \
+            'kwargs_start needs to be a dictionary'
+
         assert (
             self._action_stop is None or
             isinstance(self._action_stop, Callable)
@@ -198,6 +231,7 @@ class Task:
             'args_stop needs to be a tuple'
         assert isinstance(self._kwargs_stop, dict), \
             'kwargs_stop needs to be a dictionary'
+
         assert (
             self._action_cont is None or
             isinstance(self._action_cont, Callable)
@@ -206,22 +240,36 @@ class Task:
             'args_cont needs to be a tuple'
         assert isinstance(self._kwargs_cont, dict), \
             'kwargs_cont needs to be a dictionary'
+
+        assert (
+            self._action_final is None or
+            isinstance(self._action_final, Callable)
+            ), "action_final needs to be a callable"
+        assert isinstance(self._args_final, tuple), \
+            'args_final needs to be a tuple'
+        assert isinstance(self._kwargs_final, dict), \
+            'kwargs_final needs to be a dictionary'
+
         assert isinstance(self._join, bool), \
             'join needs to be a bool value'
         assert not self._join or hasattr(self._action, '__self__'), \
             'only bounded methods can be joined'
         assert not self._join or isinstance(self._action.__self__, Task), \
             'only instances of Task can be joined'
-        assert not self._join or self._action.__name__ in ["start", "cont"], \
+        assert not self._join or self._action.__name__ in ('start', 'cont'), \
             'only methods start or cont can be joined'
+
         assert (
             self._duration is None or
             isinstance(self._duration, Number)
         ), 'duration needs to be a number'
         assert self._duration is None or self._duration >= 0, \
             'duration needs to be positive'
-        assert isinstance(self._num, int), 'num must be an integer'
-        assert self._num >= 0, 'num must be positive'
+
+        assert self._num is None or isinstance(self._num, int), \
+            'num must be an integer'
+        assert self._num is None or self._num > 0, 'num must be positive'
+
         assert (
             self._exc_handler is None or
             isinstance(self._exc_handler, Callable)
@@ -257,19 +305,19 @@ class Task:
     def append(self, *tasks, copy=False) -> 'Task':
         """appends a task or a chain of tasks (both must be root tasks)"""
         assert self._root is self, 'appending to root tasks only'
-        assert self._state in [
+        assert self._state in (
             STATE_INIT,
             STATE_FINISHED,
             STATE_STOPPED
-        ], 'root task is currently executed'
+        ), 'root task is currently executed'
 
         for task in tasks:
             assert task._root is task, 'append root tasks only'
-            assert task._state in [
+            assert task._state in (
                 STATE_INIT,
                 STATE_FINISHED,
                 STATE_STOPPED
-            ], 'appended task is currently executed'
+            ), 'appended task is currently executed'
             assert self is not task or self._last is not task._last, \
                 'never append tasks to themselves'
 
@@ -308,18 +356,18 @@ class Task:
                 sets the waiting time, before start occurs (in seconds)
 
         """
-        # called with unlocked self._root._lock
+        # waits for lock, returns unlocked
 
         self._lock.acquire()
         assert delay is None or isinstance(delay, Number), \
             'delay needs to be a number'
         assert delay is None or delay > 0, 'delay needs to be positive'
         assert self._root is self, 'only root tasks can be started'
-        assert self._state not in [
+        assert self._state not in (
             STATE_TO_START,
             STATE_STARTED,
             STATE_TO_CONTINUE
-        ], "can't start from state " + self._state
+        ), "can't start from state " + self._state
         assert self._thread_start is None, \
             "starting is already in progress"
         assert self._thread_cont is None, \
@@ -338,56 +386,89 @@ class Task:
         return self
 
     def _start2(self) -> None:
-        '''runs in thread self._thread_start,
-        called with locked self._root._lock
-        '''
+        assert current_thread() == self._thread_start, \
+            '_start2 runs in unexpected thread'
+        assert self._lock.locked(), \
+            '_start has been called unlocked'
+        # returns unlocked
 
-        if self._state != STATE_TO_STOP:
-            self._state = STATE_TO_START
+        if self._state == STATE_TO_STOP:
+            # wait until stopping has finished
+            self._activity = ACTIVITY_JOIN
+            if self._thread_cont is not None:
+                self._lock.release()
+                try:
+                    self._thread_cont.join()
+                except Exception:
+                    pass
+                self._lock.acquire()
+            if self._thread is not None:
+                self._lock.release()
+                try:
+                    self._thread.join()
+                except Exception:
+                    pass
+                self._lock.acquire()
+            self._activity = ACTIVITY_NONE
+            if (
+                self._state in (STATE_STOPPED, STATE_FINISHED) and
+                self._thread_start is current_thread()
+            ):
+                if self._state == STATE_STOPPED:
+                    if self._current is not None:
+                        self._current._cnt = 0
+                        self._current._duration_rest = False
+                        self._current._gap = None
+                        self._current = None
+                        self._current_scheduled = None
+            else:
+                # TODO: explicit handling
+                raise RuntimeError('concurrent method calling')
+
+        self._state = STATE_TO_START
 
         # delay
         if self._delay is not None:
-            self._activity = ACTIVITY_SLEEP
-            self._cond.wait(self._delay)
-            self._activity = ACTIVITY_NONE
-            if current_thread() is not self._thread_start:
-                self._lock.release()
-                return
+            delay_rest = self._delay - time() + self._time_called_start
+            if delay_rest <= 0:
+                self._delay = None
+            else:
+                self._activity = ACTIVITY_SLEEP
+                self._cond.wait(self._delay)
+                self._activity = ACTIVITY_NONE
+                if (
+                    self._state == STATE_TO_START and
+                    current_thread() is self._thread_start
+                ):
+                    self._delay = None
+                elif self._state == STATE_TO_STOP:
+                    self._final()
+                    return
+                else:
+                    # TODO: explicit handling
+                    raise RuntimeError('concurrent method calling')
 
-        # wait until current stopping process has finished
-        if self._state == STATE_TO_STOP:
-            self._lock.release()
-            self._thread.join()
-            self._lock.acquire()
-        if self._state in [STATE_STOPPED, STATE_FINISHED]:
-            self._state = STATE_TO_START
+        # execution
+        self._restart = False
+        if self._action_start is not None:
+            self._action_start(*self._args_start, **self._kwargs_start)
+        self._state = STATE_STARTED
+        self._time_called_stop = None
 
-        if self._state != STATE_TO_START:
-            # maybe we will have start(), stop(), then cont(),
-            # all of them in STATE_TO_STOP,
-            # here we tell cont(), there was a restart
-            self._restart = True
-            self._thread_start = None
-        else:
-            # execution
-            self._restart = False
-            self._state = STATE_STARTED
-            self._time_called_stop = None
-            self._current = self
-            self._cnt = 0
-            self._time_action = time()
-            if self._duration is not None:
-                self._time_end = self._time_action + self._duration
-            self._thread = self._thread_start
-            self._thread_start = None
-            self._execute()
+        self._current = self
+        self._current_scheduled = time()
 
-    def join(self) -> None:
+        self._thread = self._thread_start
+        self._thread_start = None
+
+        self._execute()
+
+    def join(self) -> 'Task':
         """
         joins the thread of the task
 
         """
-        # called with unlocked self._root._lock
+        # does not care about locking
 
         assert self._root is self, "only root tasks can be joined"
         assert self._state != STATE_INIT, \
@@ -408,29 +489,34 @@ class Task:
         except Exception:
             pass
 
-    def stop(self) -> None:
+        return self
+
+    def stop(self) -> 'Task':
         """Stops execution as fast as possible.  Allows to continue with
         method ``cont()`` or restart with method ``start()``.  Already
         finished tasks silently do nothing
 
         """
+        # waits for lock, returns unlocked
         self._lock.acquire()
 
         assert self is self._root, 'only root tasks can be stopped'
-        assert self._state not in [
+        assert self._state not in (
             STATE_INIT,
             STATE_STOPPED
-        ], "can't stop from state: " + self._state
+        ), "can't stop from state: " + self._state
+
+        self._time_called_stop = time()
 
         # old stopping still in progress
         if self._state == STATE_TO_STOP:
             self._lock.release()
-            return
+            return self
 
         # already finished
         if self._state == STATE_FINISHED:
             self._lock.release()
-            return
+            return self
 
         # interrupt sleeping
         if self._activity is ACTIVITY_SLEEP:
@@ -445,53 +531,20 @@ class Task:
             ):
                 continue
             task.lock.acquire()
-            if task._state in [
+            if task._state in (
                     STATE_TO_START,
                     STATE_STARTED,
                     STATE_TO_CONTINUE
-            ]:
+            ):
                 not_stopped.append(task)
             task.lock.release()
         for task in not_stopped:
             task.stop()
 
-        # handle delay
-        self._time_called_stop = time()
-        if self._state == STATE_TO_START and self._delay is not None:
-            delay_rest = (
-                self._delay +
-                self._time_called_start -
-                self._time_called_stop
-            )
-            if delay_rest > 0:
-                self._delay = delay_rest
-            else:
-                self._delay = None
-        elif self._state == STATE_TO_CONTINUE and self._delay is not None:
-            delay_rest = (
-                self._delay +
-                self._time_called_cont -
-                self._time_called_stop
-            )
-            if delay_rest > 0:
-                self._delay = delay_rest
-            else:
-                self._delay = None
-        else:
-            self._delay = None
+        self._state = STATE_TO_STOP
 
-        if self._state == STATE_STARTED:
-            self._state = STATE_TO_STOP  # will stop when action is finished
-            if self._exc is not None:
-                self._final(outstand=True)
-            else:
-                self._lock.release()
-        elif self._state == STATE_TO_START:
-            self._thread_start = None
-            self._final(outstand=True)
-        elif self._state == STATE_TO_CONTINUE:
-            self._thread_cont = None
-            self._final(outstand=True)
+        self._lock.release()
+        return self
 
     def cont(self, delay: Number = None) -> 'Task':
         """
@@ -500,26 +553,22 @@ class Task:
         Keyword Arguments:
             delay:
                 sets waiting time for next action execution (in seconds)
-
         """
+        # waits for lock, returns unlocked
         self._lock.acquire()
 
         assert self is self._root, 'only root tasks can be continued'
         assert delay is None or isinstance(delay, Number), \
             'delay needs to be a number'
         assert delay is None or delay > 0, 'delay needs to be positive'
-        assert self._state in [
+        assert self._state in (
             STATE_STOPPED,
             STATE_TO_STOP,
             STATE_FINISHED
-        ], "can't continue from state: {} (task: {})".format(
+        ), "can't continue from state: {} (task: {})".format(
             self._state,
             self
         )
-        assert self._thread_start is None, \
-            "starting is already in progress"
-        assert self._thread_cont is None, \
-            "continuation is already in progress"
         assert self._exc is None, \
             "last execution stopped with an exception"
 
@@ -528,126 +577,177 @@ class Task:
             self._lock.release()
             return self
 
+        self._time_called_cont = time()
+
         if delay is not None:
             self._delay = delay
-        self._time_called_cont = time()
+            if self._current_scheduled is not None:
+                self._current_scheduled += (
+                    self._time_called_cont -
+                    self._time_called_stop +
+                    delay
+                )
+        elif self._current_scheduled is not None:
+            self._current_scheduled += (
+                self._time_called_cont -
+                self._time_called_stop
+            )
 
         self._thread_cont = Thread(
             target=self._cont2
         )
         self._thread_cont.start()
+
         return self
 
     def _cont2(self) -> None:
-        '''runs in thread self._thread_cont with locked self._lock'''
+        assert current_thread() == self._thread_cont, \
+            '_cont2 runs in unexpected thread'
+        assert self._lock.locked(), '_cont2 has been called unlocked'
 
-        if self._restart:
+        if (
+                self._current is None and not self._contained or
+                self._restart
+        ):
+            self._time_called_start = self._time_called_cont
+            self._time_called_cont = None
             self._thread_start = self._thread_cont
-            self._thread_start = None
+            self._thread_cont = None
             self._start2()
             return
 
-        if self._state != STATE_TO_STOP:
+        # STATE_TO_CONTINUE and waiting on stopping
+        if self._state == STATE_STOPPED:
             self._state = STATE_TO_CONTINUE
-
-        # delay
-        if self._delay is not None:
-            self._activity = ACTIVITY_SLEEP
-            self._cond.wait(self._delay)
-            self._activity = ACTIVITY_NONE
-            if current_thread() is not self._thread_cont:
-                self._lock.release()
-                return
-
-        # wait until current stopping process has finished
-        if self._state == STATE_TO_STOP:
+        else:
+            # wait until current stopping process has finished
+            self._activity = ACTIVITY_JOIN
             self._lock.release()
             self._thread.join()
             self._lock.acquire()
-        if self._state == STATE_STOPPED:
-            self._state = STATE_TO_CONTINUE
-
-        # corrections of absolute times
-        time_delta = time() - self._time_called_stop
-        if self._current:
-            if self._time_action:
-                self._time_action += time_delta
-            if self._current._time_end:
-                self._current._time_end += time_delta
-        elif self._time_end:
-            self._time_end += time_delta
-
-        if self._state != STATE_TO_CONTINUE:
-            return
-        else:
-            if self._action_cont:
-                self._action_cont(*self._args_cont, **self._kwargs_cont)
-            self._state = STATE_STARTED
-            self._time_called_stop = None
-            self._thread = self._thread_cont
-            self._thread_cont = None
-            if self._contained:
-                for task in self._contained:
-
-                    if task._state == STATE_FINISHED:
-                        continue
-
-                    if (
-                        task not in self._parents or
-                        self._parents[task] is not self
-                    ):
-                        continue
-
-                    task.cont()
-                    # task._lock.acquire()
-                    # task._thread_cont = threading.Thread(
-                    #     target=task._cont2
-                    # )
-                    # task._thread_cont.start()
-                if self._cont_join is not None:
-                    self._activity = ACTIVITY_JOIN
-                    self._lock.release()
-                    self._cont_join.join()
-                    self._lock.acquire()
-                    self._activity = ACTIVITY_NONE
-                    if self._state != STATE_STARTED:
-                        self._final()
-                        return
-
-            if self._current:
-                if self._time_action:
-                    gap = self._time_action - time()
-                    if gap > 0:
-                        self._activity = ACTIVITY_SLEEP
-                        self._cond.wait(gap)
-                        self._activity = ACTIVITY_NONE
-                        # did someone change the state?
-                        if self._state != STATE_STARTED:
-                            self._final()
-                            return
-                self._current._execute()
+            self._activity = ACTIVITY_NONE
+            if (
+                self._state == STATE_FINISHED and
+                self._thread_cont is current_thread()
+            ):
+                # already finished, nothing to continue
+                self._lock.release()
+                return
+            elif (
+                self._state == STATE_STOPPED and
+                self._thread_cont is current_thread()
+            ):
+                self._state = STATE_TO_CONTINUE
             else:
-                if self._time_end is not None:
-                    gap = self._time_end - time()
-                    if gap > 0:
-                        self._activity = ACTIVITY_SLEEP
-                        self._cond.wait(gap)
-                        self._activity = ACTIVITY_NONE
-                        # did someone change the state?
-                        if self._state != STATE_STARTED:
-                            self._final()
-                            return
-                self._time_end = None
-                self._final()
+                # TODO: explicit handling
+                raise RuntimeError('concurrent method calling')
+
+        # delay
+        if self._delay is not None:
+            delay_rest = self._delay - time() + self._time_called_cont
+            if delay_rest <= 0:
+                self._delay = None
+            else:
+                self._activity = ACTIVITY_SLEEP
+                self._cond.wait(delay_rest)
+                self._activity = ACTIVITY_NONE
+                self._lock.release()
+                self._lock.acquire()
+                if (
+                    self._state == STATE_TO_CONTINUE and
+                    current_thread() is self._thread_cont
+                ):
+                    self._delay = None
+                elif (
+                    self._state == STATE_TO_STOP and
+                    current_thread() is self._thread_cont
+                ):
+                    self._final()
+                    return
+                else:
+                    # TODO: explicit handling
+                    raise RuntimeError('concurrent method calling')
+
+        if self._action_cont is not None:
+            self._action_cont(*self._args_cont, **self._kwargs_cont)
+
+        self._state = STATE_STARTED
+        self._time_called_stop = None
+        self._thread = self._thread_cont
+        self._thread_cont = None
+
+        # continue the contained tasks
+        if self._contained is not None:
+            for task in self._contained:
+
+                if task._state == STATE_FINISHED:
+                    continue
+
+                if (
+                    task not in self._parents or
+                    self._parents[task] is not self
+                ):
+                    continue
+
+                task.cont()
+            if self._cont_join is not None:
+                self._activity = ACTIVITY_JOIN
+                self._lock.release()
+                self._cont_join.join()
+                self._lock.acquire()
+                self._activity = ACTIVITY_NONE
+                if (
+                    self._state != STATE_STARTED or
+                    current_thread() is not self._thread_cont
+                ):
+                    self._final()
+                    return
+
+        if self._current is None:
+            self._final()
+        else:
+            self._current._execute()
 
     def _execute(self) -> None:
-        # called with locked self._root._lock
+        '''recusively executes one chain link
+        '''
+        assert current_thread() == self._root._thread, \
+            '_execute runs in unexpected thread'
+        assert self._root._lock.locked(), '_execute has been called unlocked'
+        # returns unlocked
+
+        if not self._duration_rest:
+            pass
+            # action_scheduled = self._root._current_scheduled
 
         while True:
+
             if self._root._state != STATE_STARTED:
-                self._final(outstand=True)
+                # someone called stop
+                self._final()
                 return
 
+            if self._duration_rest:
+                # no actions, only sleeping
+                break
+
+            if self._gap is not None:
+                time_gap_started = time()
+                self._root._activity = ACTIVITY_SLEEP
+                self._root._cond.wait(self._gap)
+                self._root._activity = ACTIVITY_NONE
+                if self._root._state == STATE_STARTED:
+                    # full sleeping done
+                    self._gap = None
+                else:
+                    # sleeping has been interrupted
+                    self._gap -= time() - time_gap_started
+                    if self._gap < 0:
+                        self._gap = None
+                    self._final()
+                    return
+
+            time_action_started = time()
             try:
                 gap = self._wrapper()
             except Exception as exc:
@@ -662,54 +762,61 @@ class Task:
 
             self._cnt += 1
 
+            # action is done
             if (
                     gap == -1 or
                     (self._num is not None and self._cnt >= self._num)
             ):
-                self._root._time_action = time()
+                self._gap = None
                 break
 
+            # immediately call action again
             if gap == 0:
-                self._root._time_action = time()
+                self._gap = None
                 continue
 
             if self._netto_time:
-                self._root._time_action = time() + gap
-                real_gap = gap
+                self._gap = gap
             else:
-                self._root._time_action += gap
-                real_gap = self._root._time_action - time()
+                self._gap = gap - time() + time_action_started
 
-            if real_gap > 0:
-                if self._root._state != STATE_STARTED:
-                    self._final(outstand=True)
+        self._cnt = 0
+
+        # duration
+        if self._duration is not None:
+            duration_rest = (
+                self._duration -
+                time() +
+                self._root._current_scheduled
+            )
+            if duration_rest > 0:
+                self._root._activity = ACTIVITY_SLEEP
+                self._root._cond.wait(duration_rest)
+                self._root._activity = ACTIVITY_NONE
+                if self._root._state == STATE_STARTED:
+                    # full sleeping done
+                    self._duration_rest = False
+                else:
+                    # sleeping has been interrupted
+                    duration_rest = (
+                        self._duration -
+                        time() +
+                        self._root._current_scheduled
+                    )
+                    if duration_rest > 0:
+                        self._duration_rest = True
+                    else:
+                        self._duration_rest = False
+                    self._final()
                     return
-                self._root._activity = ACTIVITY_SLEEP
-                self._root._cond.wait(real_gap)
-                self._root._activity = ACTIVITY_NONE
 
-        if self._time_end:
-            self._root._time_action = self._time_end
-            gap = self._root._time_action - time()
-            if self._root._state == STATE_STARTED and gap > 0:
-                self._root._activity = ACTIVITY_SLEEP
-                self._root._cond.wait(gap)
-                self._root._activity = ACTIVITY_NONE
-            if self._root._state == STATE_STARTED:
-                self._time_end = None
-            elif self is not self._root:
-                self._root._time_end = self._time_end
-                self._time_end = None
-        else:
-            self._root._time_action = time()
+        # next chain link
         if self._next:
             self._root._current = self._next
-            self._next._cnt = 0
-            self._root._time_end = None
-            if self._next._duration is not None:
-                self._next._time_end = (
-                    self._root._time_action + self._next._duration
-                )
+            if self._duration is not None:
+                self._root._current_scheduled += self._duration
+            else:
+                self._root._current_scheduled = time()
             self._next._execute()
         else:
             self._final()
@@ -718,7 +825,9 @@ class Task:
         '''runs wrapper_before, action, wrapper_after
         returns -1 (no repeated calling)
         '''
-        # called with locked self._root._lock
+        assert current_thread() == self._root._thread, \
+            '_wrapper runs in unexpected thread'
+        assert self._root._lock.locked(), '_wrapper has been called unlocked'
 
         self._wrapper_before()
         self._action(*self._args, **self._kwargs)
@@ -731,7 +840,11 @@ class Task:
         sets parent link,
         manages lock and activity
         '''
-        # called with locked self._root._lock, ends unlocked
+        assert current_thread() == self._root._thread, \
+            '_wrapper_before runs in unexpected thread'
+        assert self._root._lock.locked(), \
+            '_wrapper_before has been called unlocked'
+        # returns unlocked
 
         is_task = (
             hasattr(self._action, '__self__') and
@@ -741,9 +854,11 @@ class Task:
 
         if is_task:
             task = self._action.__self__
-            if name == 'join':
+            if name == 'join' and task in self._root._contained:
                 self._root._cont_join = task
-            elif name in ['start', 'cont']:
+            elif name in ('start', 'cont'):
+                if self._join:
+                    self._root._cont_join = task
                 if task not in self._root._contained:
                     self._root._contained.append(task)
                 self._parents.update({task: self._root})
@@ -751,17 +866,21 @@ class Task:
         # action may be long lasting
         if (
             not is_task or
-            name not in ["start", "cont"] or
-            name == "start" and self._join
+            name not in ('start', 'cont')
         ):
-            self._root._activity = ACTIVITY_BUSY
+            if is_task and name == 'join':
+                self._root._activity = ACTIVITY_JOIN
+            else:
+                self._root._activity = ACTIVITY_BUSY
             self._root._lock.release()
 
     def _wrapper_after(self) -> None:
         '''does joining,
         manages lock and activity
         '''
-        # called with unlocked self._root._lock, ends locked
+        assert current_thread() == self._root._thread, \
+            '_wrapper_after runs in unexpected thread'
+        # returns locked
 
         is_task = (
             hasattr(self._action, '__self__') and
@@ -770,16 +889,24 @@ class Task:
         name = self._action.__name__
 
         # action may be long lasting
-        if (
-                not is_task or
-                name not in ["start", "cont"] or
-                name == "start" and self._join
+        if self._join:
+            self._root._activity = ACTIVITY_JOIN
+            self._root._lock.release()
+            self._action.__self__.join()
+            self._root._lock.acquire()
+            self._root._activity = ACTIVITY_NONE
+        elif (
+            not is_task or
+            name not in ('start', 'cont')
         ):
             self._root._lock.acquire()
             self._root._activity = ACTIVITY_NONE
 
+        assert self._root._lock.locked(), \
+            '_wrapper_after must be locked'
+
         # ???
-        if (is_task and name in ["start", "stop", "cont", "join"]):
+        if (is_task and name in ('start', 'stop', 'cont', 'join')):
             task = self._action.__self__
             state = task.state
             if (
@@ -792,7 +919,7 @@ class Task:
                 self._root._cont_join = None
 
             if (
-                    (state == STATE_FINISHED or name == "stop") and
+                    (state == STATE_FINISHED or name == 'stop') and
                     task in self._root._contained
             ):
                 self._root._contained.remove(task)
@@ -804,8 +931,12 @@ class Task:
                 self._parents.pop(task)
 
     def _final(self, outstand=False) -> None:
-        # called with locked self._root._lock
-        # print('inside _final', self._root._thread, self._root._state)
+        assert self._root._lock.locked(), \
+            '_final has been called unlocked'
+        assert self._root._state in (STATE_STARTED, STATE_TO_STOP), \
+            '_final has been called in incorrect state: ' + \
+            self._root._state
+        # returns unlocked
 
         self._root._contained = self._join_contained()
 
@@ -813,64 +944,64 @@ class Task:
         if self._root._state == STATE_STARTED:
             self._root._state = STATE_FINISHED
 
-        # in starting process
-        elif self._root._state == STATE_TO_START:
-            self._root._current = self
-            if self._root._action_stop:
-                self._root._action_stop(
-                    *self._root._args_stop,
-                    **self._root._kwargs_stop
-                )
+        # stopped in starting process
+        elif self._root._thread_start is not None:
+            self._root._delay -= time() - self._root._time_called_start
+            if self._root._delay < 0:
+                self._root._delay = None
             self._root._state = STATE_STOPPED
 
-        # in continuation process
-        elif self._root._state == STATE_TO_CONTINUE:
-            self._root._current = self
-            if self._root._action_stop:
-                self._root._action_stop(
-                    *self._root._args_stop,
-                    **self._root._kwargs_stop
-                )
+        # stopped in continuation process
+        elif self._root._thread_cont is not None:
+            # self._root._current = self
+            self._root._delay -= time() - self._root._time_called_cont
+            if self._root._delay < 0:
+                self._root._delay = None
             self._root._state = STATE_STOPPED
 
-        # in stopping process
-        elif self._root._state == STATE_TO_STOP:
-            # all done
-            if (
-                not self._next and
+        # stopped, but already finished
+        elif (
+                self._next is None and
                 not self._root._contained and
-                not self._root._time_end and
-                not outstand
+                not self._duration_rest and
+                self._gap is None and
+                (self._num is None or self._cnt == self._num)
+        ):
+            self._root._state = STATE_FINISHED
+
+        # stopped and at least one action done
+        else:
+            # all done but unfinished children
+            if (
+                self._next is None and
+                not self._duration_rest and
+                self._gap is None and
+                (self._num is None or self._cnt == self._num)
             ):
-                self._root._state = STATE_FINISHED
-            # really stopped
-            elif self._root._action_stop:
+                self._root._current = None
+                self._root._current_scheduled = None
+
+            if self._root._action_stop is not None:
                 self._root._action_stop(
                     *self._root._args_stop,
                     **self._root._kwargs_stop
                 )
+            self._root._state = STATE_STOPPED
 
         if self._root._state == STATE_FINISHED:
+            if self._root._action_final is not None:
+                self._root._action_final(
+                    *self._root._args_final,
+                    **self._root._kwargs_final
+                )
             if self._root in self._parents:
                 self._parents.pop(self._root)
+            self._root._thread = None
+            self._root._thread_start = None
             self._root._thread_cont = None
             self._root._current = None
-            self._root._time_action = None
+            self._root._current_scheduled = None
             self._root._delay = None
-        else:
-            if not self._next and not outstand:
-                self._root._current = None
-                self._root._time_action = None
-            if self._root._thread_start:
-                self._root._current = None
-                self._root._time_action = None
-                self._root._state = STATE_TO_START
-            elif self._root._thread_cont:
-                self._root._state = STATE_TO_CONTINUE
-            else:
-                self._root._state = STATE_STOPPED
-        if self._root._time_action and self._root._time_action < time():
-            self._root._time_action = None
         self._root._lock.release()
 
     def _join_contained(self) -> list:
@@ -880,7 +1011,9 @@ class Task:
         Returns:
             list of all contained taskes, which did not end in STATE_FINISHED
         '''
-        # called with locked self._root._lock
+        assert self._root._lock.locked(), \
+            '_final has been called unlocked'
+        # returns locked
 
         contained = self._root._contained
         self._root._activity = ACTIVITY_JOIN
@@ -939,52 +1072,19 @@ class Task:
     @root.setter
     def root(self, task):
         assert isinstance(task, Task), 'root needs to be a Task'
-        assert task._state in [
+        assert task._state in (
             STATE_INIT,
             STATE_STOPPED,
             STATE_FINISHED
-        ], 'task is actually executed'
+        ), 'task is currently executed'
         self._root = task
         if self._next:
             self._next.root = task
 
     @property
-    def time_action(self) -> Number:
-        """
-        time of current (activity is ACTIVITY_BUSY) or next action,
-        is in the format of time.time()
-        """
-        self._root._lock.acquire()
-        assert self._root is self, \
-            'only root tasks can be asked about their time_action'
-        value = self.time_action_no_lock
-        self._root._lock.release()
-        return value
-
-    @property
-    def time_action_no_lock(self) -> Number:
-        """
-        time of current (activity is ACTIVITY_BUSY) or next action,
-        is in the format of time.time()
-        """
-        min = self._time_action
-        for task in self._contained:
-            if (
-                    task not in self._parents or
-                    self._parents[task] is not self
-            ):
-                continue
-
-            act = task.time_action
-            if min is None or \
-               act is not None and act < min:
-                min = act
-        return min
-
-    @property
     def activity(self) -> str:
         """
-        actual activity
+        current activity
         """
         self._root._lock.acquire()
         assert self._root is self, \
@@ -996,15 +1096,41 @@ class Task:
     @property
     def activity_no_lock(self) -> str:
         """
-        actual activity
+        current activity
         """
         return self._activity
+
+    @property
+    def action_start(self):
+        """
+        callable, which is called when starting the task
+        """
+        assert self._root is self, \
+            'only root tasks can be asked about their action_start'
+        return self._action_start
+
+    @action_start.setter
+    def action_start(self, value: Callable):
+        self._root._lock.acquire()
+        assert value is None or isinstance(value, Callable), \
+            'action_start needs to be None or a callable'
+        assert self._state in (
+            STATE_INIT,
+            STATE_STOPPED,
+            STATE_FINISHED
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their action_start'
+        self._action_start = value
+        self._root._lock.release()
 
     @property
     def action_stop(self):
         """
         callable, which is called in case of stopping the task
         """
+        assert self._root is self, \
+            'only root tasks can be asked about their action_stop'
         return self._action_stop
 
     @action_stop.setter
@@ -1012,11 +1138,13 @@ class Task:
         self._root._lock.acquire()
         assert value is None or isinstance(value, Callable), \
             'action_stop needs to be None or a callable'
-        assert self._state in [
+        assert self._state in (
             STATE_INIT,
             STATE_STOPPED,
             STATE_FINISHED
-        ], 'task is actually executed'
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their action_stop'
         self._action_stop = value
         self._root._lock.release()
 
@@ -1034,12 +1162,62 @@ class Task:
         self._root._lock.acquire()
         assert value is None or isinstance(value, Callable), \
             'action_cont needs to be None or a callable'
-        assert self._state in [
+        assert self._state in (
             STATE_INIT,
             STATE_STOPPED,
             STATE_FINISHED
-        ], 'task is actually executed'
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their action_cont'
         self._action_cont = value
+        self._root._lock.release()
+
+    @property
+    def action_final(self):
+        """
+        callable, which is called when finishing the task
+        """
+        assert self._root is self, \
+            'only root tasks can be asked about their action_final'
+        return self._action_final
+
+    @action_final.setter
+    def action_final(self, value: Callable):
+        self._root._lock.acquire()
+        assert value is None or isinstance(value, Callable), \
+            'action_final needs to be None or a callable'
+        assert self._state in (
+            STATE_INIT,
+            STATE_STOPPED,
+            STATE_FINISHED
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their action_final'
+        self._action_final = value
+        self._root._lock.release()
+
+    @property
+    def args_start(self):
+        """
+        arguments of action_start,
+        which is called when starting the task
+        """
+        assert self._root is self, \
+            'only root tasks can be asked about their args_start'
+        return self._args_start
+
+    @args_start.setter
+    def args_start(self, value: tuple):
+        self._root._lock.acquire()
+        assert isinstance(value, tuple), 'args_start needs to be a tuple'
+        assert self._root._state in (
+            STATE_INIT,
+            STATE_STOPPED,
+            STATE_FINISHED
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their args_start'
+        self._args_start = value
         self._root._lock.release()
 
     @property
@@ -1047,17 +1225,21 @@ class Task:
         """
         arguments of action_stop, which is called in case of stopping the task
         """
+        assert self._root is self, \
+            'only root tasks can be asked about their args_stop'
         return self._args_stop
 
     @args_stop.setter
     def args_stop(self, value: tuple):
         self._root._lock.acquire()
         assert isinstance(value, tuple), 'args_stop needs to be a tuple'
-        assert self._root._state in [
+        assert self._root._state in (
             STATE_INIT,
             STATE_STOPPED,
             STATE_FINISHED
-        ], 'task is actually executed'
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their args_stop'
         self._args_stop = value
         self._root._lock.release()
 
@@ -1067,18 +1249,71 @@ class Task:
         arguments of action_cont,
         which is called in case of continuing the task
         """
+        assert self._root is self, \
+            'only root tasks can be asked about their args_cont'
         return self._args_cont
 
     @args_cont.setter
     def args_cont(self, value: tuple):
         self._root._lock.acquire()
         assert isinstance(value, tuple), 'args_cont needs to be a tuple'
-        assert self._root._state in [
+        assert self._root._state in (
             STATE_INIT,
             STATE_STOPPED,
             STATE_FINISHED
-        ], 'task is actually executed'
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their args_cont'
         self._args_cont = value
+        self._root._lock.release()
+
+    @property
+    def args_final(self):
+        """
+        arguments of action_cont,
+        which is called in case of continuing the task
+        """
+        assert self._root is self, \
+            'only root tasks can be asked about their args_final'
+        return self._args_final
+
+    @args_final.setter
+    def args_final(self, value: tuple):
+        self._root._lock.acquire()
+        assert isinstance(value, tuple), 'args_final needs to be a tuple'
+        assert self._root._state in (
+            STATE_INIT,
+            STATE_STOPPED,
+            STATE_FINISHED
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their args_final'
+        self._args_final = value
+        self._root._lock.release()
+
+    @property
+    def kwargs_start(self):
+        """
+        keyword arguments of action_start,
+        which is called when starting the task
+        """
+        assert self._root is self, \
+            'only root tasks can be asked about their kwargs_start'
+        return self._kwargs_start
+
+    @kwargs_start.setter
+    def kwargs_start(self, value: dict):
+        self._root._lock.acquire()
+        assert isinstance(value, dict), \
+            'kwargs_start needs to be a dictionary'
+        assert self._root._state in (
+            STATE_INIT,
+            STATE_STOPPED,
+            STATE_FINISHED
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their kwargs_start'
+        self._kwargs_start = value
         self._root._lock.release()
 
     @property
@@ -1087,6 +1322,8 @@ class Task:
         keyword arguments of action_stop,
         which is called in case of stopping the task
         """
+        assert self._root is self, \
+            'only root tasks can be asked about their kwargs_stop'
         return self._kwargs_stop
 
     @kwargs_stop.setter
@@ -1094,11 +1331,13 @@ class Task:
         self._root._lock.acquire()
         assert isinstance(value, dict), \
             'kwargs_stop needs to be a dictionary'
-        assert self._root._state in [
+        assert self._root._state in (
             STATE_INIT,
             STATE_STOPPED,
             STATE_FINISHED
-        ], 'task is actually executed'
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their kwargs_stop'
         self._kwargs_stop = value
         self._root._lock.release()
 
@@ -1108,6 +1347,8 @@ class Task:
         keyword arguments of action_cont,
         which is called in case of continuing the task
         """
+        assert self._root is self, \
+            'only root tasks can be asked about their kwargs_cont'
         return self._kwargs_cont
 
     @kwargs_cont.setter
@@ -1115,12 +1356,39 @@ class Task:
         self._root._lock.acquire()
         assert isinstance(value, dict), \
             'kwargs_cont needs to be a dictionary'
-        assert self._root._state in [
+        assert self._root._state in (
             STATE_INIT,
             STATE_STOPPED,
             STATE_FINISHED
-        ], 'task is actually executed'
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their kwargs_cont'
         self._kwargs_cont = value
+        self._root._lock.release()
+
+    @property
+    def kwargs_final(self):
+        """
+        keyword arguments of action_final,
+        which is called when finishing the task
+        """
+        assert self._root is self, \
+            'only root tasks can be asked about their kwargs_final'
+        return self._kwargs_final
+
+    @kwargs_final.setter
+    def kwargs_final(self, value: dict):
+        self._root._lock.acquire()
+        assert isinstance(value, dict), \
+            'kwargs_final needs to be a dictionary'
+        assert self._root._state in (
+            STATE_INIT,
+            STATE_STOPPED,
+            STATE_FINISHED
+        ), 'task is currently executed'
+        assert self._root is self, \
+            'only root tasks allow to set their kwargs_final'
+        self._kwargs_final = value
         self._root._lock.release()
 
     @property
@@ -1145,11 +1413,11 @@ class Task:
         self._root._lock.acquire()
         assert value is None or isinstance(value, Callable), \
             'exc_handler needs to be None or a callable'
-        assert self._state in [
+        assert self._state in (
             STATE_INIT,
             STATE_STOPPED,
             STATE_FINISHED
-        ], 'task is actually executed'
+        ), 'task is currently executed'
         self._exc_handler = value
         self._root._lock.release()
 
@@ -1210,8 +1478,6 @@ class Periodic(Task):
            isinstance(action.__self__, Task) and \
            action.__name__ == "start":
             kwargs.update({'join': True})
-        else:
-            kwargs.update({'join': False})
         super().__init__(action, **kwargs)
         assert isinstance(self._intervall, Number), \
             'intervall must be a number' + intervall
@@ -1285,8 +1551,6 @@ class Repeated(Task):
                 action.__name__ == "start"
         ):
             kwargs.update({'join': True})
-        else:
-            kwargs.update({'join': False})
         super().__init__(action, **kwargs)
         assert isinstance(self._netto_time, bool), \
             'netto_time must be a bool value'

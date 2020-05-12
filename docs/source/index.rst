@@ -7,9 +7,12 @@
    :maxdepth: 3
    :caption: Contents:
 
+.. title:: thread_task
+
 
 Readme
 ======
+
 thread_task is built on top of
 `threading <https://docs.python.org/3.8/library/threading.html>`_
 and allows to organize tasks and run them parallel.
@@ -26,15 +29,15 @@ You can:
 A thread_task is not like a function, it doesn't return results. Think
 of it as an instruction to a reliable but independently acting
 person. If feedback is needed, this can be done by callback
-functions. You can also use mutable objects, which tasks get in
-as arguments.
+functions. You can also use mutable objects, which multiple tasks work
+with.
 
 The following task types exist:
 
-- Task: Executes a single task or a chain of tasks
-- Repeated: Executes a task multiple times.
-- Periodic: Executes a task periodically
-- Sleep: sleeps for a given time, is similar to
+- Task: Executes a single callable or a chain of callables.
+- Repeated: Executes a callable multiple times.
+- Periodic: Executes a callable periodically
+- Sleep: Sleeps for a given time, is similar to
   `time.sleep <https://docs.python.org/3.8/library/time.html#time.sleep>`_,
   but can be stopped and continued
 
@@ -45,236 +48,539 @@ Examples
 Wrapping a function into a Task object
 --------------------------------------
 
-**Task** allows to execute a function (or any other callable) in its own thread,
-parallel to the commands of the main program.
-Here, we define a funtion print_it. We wrap it into a Task object
-and then call method start of the Task object.
+:py:class:`~thread_task.Task` allows to execute a function (or any
+other callable) in its own thread, parallel to the commands of the
+main program.  Here, we define a funtion :py:func:`print_it`. We wrap
+it into a :py:class:`~thread_task.Task` object and then call its
+method :py:meth:`~thread_task.Task.start`.
 
-.. code:: python
+.. code:: python3
 
-    from thread_task import Task
-    from datetime import datetime
-    
+  from thread_task import Task
+  from datetime import datetime
+  from threading import current_thread
+  
+  
+  def print_it():
+      print(
+          '{} {:10s}: {}'.format(
+              datetime.now().strftime('%H:%M:%S.%f'),
+              current_thread().name,
+              'hello, world!'
+          )
+      )
+  
+  
+  t = Task(print_it)
+  t.start(2)
+  
+  print(
+      '{} {:10s}: {}'.format(
+          datetime.now().strftime('%H:%M:%S.%f'),
+          current_thread().name,
+          'last instruction'
+      )
+  )
 
-    def print_it():
-        print(
-            datetime.now().strftime('%H:%M:%S.%f'),
-            'hello, world!'
-        )
-        
-
-    Task(print_it).start(2)
-    
-    print(
-        datetime.now().strftime('%H:%M:%S.%f'),
-        'the last program statement'
-    )
-
-Method start has an optional argument **delay**, that
-allows to add a timespan before the execution starts.
+:py:meth:`~thread_task.Task.start` has an optional argument **delay**, that
+allows to set a timespan (in sec.) before the execution starts.
 The program produced this output:
 
-::
+.. code-block:: none
 
-   15:48:11.626177 the last program statement
-   15:48:13.626036 hello, world!
+  09:36:12.454089 MainThread: last instruction
+  09:36:14.454512 Thread-1  : hello, world!
 
-Indeed, function print_it is executed 2 sec. after the last program statement.
-This could also be done with
-`threading.Timer <https://docs.python.org/3.8/library/threading.html#threading.Timer>`_.
+Indeed, function :py:func:`print_it` is called 2 sec. after the
+execution of the last program statement.
+:py:attr:`threading.current_thread().name` gave us the name of the
+current thread and we see, that the execution of :py:func:`print_it`
+was done in thread ``Thread-1`` while ``MainThread`` executed the main
+program. Calling method start of a Task object creates a new thread and
+this thread executes the Task's action.
+
+
+Callables with arguments
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Our first attempt called a function without any arguments. This is a
+bit too simple for real life. Let's go one step further and modify
+:py:func:`print_it`. The new function gets a positional argument and
+we also allow keyword arguments to demonstrate the mechanism. If you
+want your action be called with positional arguments, then call the
+constructor of :py:class:`~thread_task.Task` with its keyword argument
+**args**, which holds the argument tuple for the callable's
+invocation, it defaults to (). If you want your action be called with
+keyword arguments, use **kwargs**, which holds a dictionary of keyword
+arguments and defaults to {}.
+
+.. code:: python3
+
+  from thread_task import Task
+  from datetime import datetime
+  from threading import current_thread
+  
+  
+  def print_it(txt: str, **kwargs):
+      print(
+          '{} {:10s}: {}'.format(
+              datetime.now().strftime('%H:%M:%S.%f'),
+              current_thread().name,
+              txt,
+              kwargs
+          )
+      )
+  
+  
+  Task(
+      print_it,
+      args=('hello, world!',),
+      kwargs={'flush': True}
+  ).start(2)
+  
+  print_it('last instruction', flush=True)
+
+The output of this variant is not different from the one above. The
+comparison of the last two instructions shows, how positional and
+keyword arguments are handled.
+
+Up to now, :py:class:`~thread_task.Task` seems not that much
+innovative. It looks like another flavour of `threading.Timer
+<https://docs.python.org/3.8/library/threading.html#threading.Timer>`_,
+which does the job as well, but thread_task is more than that.
+  
 
 Building chains of tasks
 ------------------------
 
-Task objects allow to append other Task objects and the result is also
-a Task object. To be precise, Task objects are designed as linked
-lists and the constructor returns the special case of a single chain
-link. Appending modifies the Task object and adds one or multiple
-chain links, but the result still is a Task object.  When a Task is
-started, its chain links are executed one after the other.
+Task objects allow to :py:meth:`~thread_task.Task.append` other Task
+objects, but the result still is a Task object. To be precise, Task
+objects are designed as linked lists and the constructor returns the
+special case of a single chain link. Appending modifies the Task
+object and adds one or multiple chain links. Starting a Task means
+executing its chain links one after the other. Appended Task objects
+loose most of their functionality. If you still have a reference and
+you call their methods or use their arguments, this usually will raise
+exceptions.
 
-.. code:: python
+.. code:: python3
 
-    from thread_task import Task
-    from datetime import datetime
-    
-    
-    def print_it(txt: str):
-        print(
-            datetime.now().strftime('%H:%M:%S.%f'),
-            txt
-        )
-    
-    
-    Task(
-        print_it,  # action
-        args=('hello,',),
-        duration=2
-    ).append(
-        Task(
-            print_it,  # action
-            args=('world!',)
-        )
-    ).start()
+  from thread_task import Task
+  from datetime import datetime
+  from threading import current_thread
+  
+  
+  def print_it(txt: str):
+      print(
+          '{} {:10s}: {}'.format(
+              datetime.now().strftime('%H:%M:%S.%f'),
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  Task(
+      print_it,  # action
+      args=('hello,',),
+      duration=2
+  ).append(
+      Task(
+          print_it,  # action
+          args=('world!',)
+      )
+  ).start()
 
-Here, we appended one Task object and built a chain of two tasks. The
-first prints ``hello,``, the second prints ``world!``. We set the
-first Task's **duration** to 2 sec.,  which sets a timespan between the
-two printings. This example also shows, how positional arguments are
-bount to the actions. This is done with keyword argument **args**,
-which expects a tuple of values.
+Here, we appended one Task object and built a chain of two
+links. The first prints ``hello,``, the second prints ``world!``. We
+set the first Task's **duration** to 2 sec., which sets a timespan
+between the two printings.
 
 The output was:
 
-::
+.. code-block:: none
 
-   15:55:31.644113 hello,
-   15:55:33.644894 world!
+   09:55:31.644113 Thread-1  : hello,
+   09:55:33.644894 Thread-1  : world!
+
+As you can see, both chain links were executed in thread ``Thread-1``.
+
+Method :py:meth:`~thread_task.concat` is an alternative to append.
+It's just another flavour and does the very same thing.
+
+.. code:: python3
+
+  from thread_task import Task, concat
+  from datetime import datetime
+  from threading import current_thread
+  
+  
+  def print_it(txt: str):
+      print(
+          '{} {:10s}: {}'.format(
+              datetime.now().strftime('%H:%M:%S.%f'),
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  concat(
+      Task(
+          print_it,  # action
+          args=('hello,',),
+          duration=2
+      ),
+      Task(
+          print_it,  # action
+          args=('world!',)
+      )
+  ).start()
+
+The result is the same. In both cases the first Task is the one, which
+has been modified and can be started. The following ones are
+unusable. You can't start them because they `know`, that they became
+links in a chain. If you prefer appending or concatenating, that's
+your choice.
 
 
-Stop and continue
------------------
-Task objects can be stopped and continued. Stopping means,
-that method **stop** *tells* the Task to finish the current atom of execution, then stop.
-The Task object will *know* its state and is ready to continue the execution, which is done by
-method **cont**.
+Stopping
+--------
 
-.. code:: python
+Task objects can be stopped. Stopping means, that method
+:py:meth:`~thread_task.Task.stop` *tells* the Task to finish the
+current atom of execution, then stop. The Task object always *knows*
+its state and when the stopping process ended, the Task is ready to
+be continued or started again.
 
-   from thread_task import Task, Sleep, concat
-   from datetime import datetime
-   from time import sleep
+To be precise: calling method stop changes the attribute
+**Task.state** from **STATE_STARTED** to **STATE_TO_STOP**. This part
+of the stopping process is fast and runs under control of the thread,
+that called method stop. Internally, when the Task object realizes its
+change of state, it does all the actions for a controlled
+stopping. When all this is done, its state changes from STATE_TO_STOP to
+state **STATE_STOPPED**. Then, the Task's thread ends.
 
-   def print_it(txt: str):
-       print(
-           datetime.now().strftime('%H:%M:%S.%f'),
-           txt
-       )
+.. _stopping_example:
 
-   t = concat(
-       Task(
-           print_it,  # action
-           args=('hello,',)
-       ),
-       Sleep(2),
-       Task(
-           print_it,  # action
-           args=('world!',)
-       )
-   )
-   t.action_stop = print_it
-   t.args_stop = ('task has been stopped',)
-   t.action_cont = print_it
-   t.args_cont = ('task has been continued',)
+.. code:: python3
 
-   t.start()
-   sleep(1)
-   t.stop()
-   sleep(4)
-   t.cont()
+  from thread_task import Task, concat
+  from datetime import datetime
+  from time import sleep
+  from threading import current_thread
+  
+  
+  def print_it(txt: str):
+      print(
+          '{} {:10s}: {}'.format(
+              datetime.now().strftime('%H:%M:%S.%f'),
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  t = concat(
+      Task(
+          print_it,  # action
+          args=('hello,',),
+          duration=2
+      ),
+      Task(
+          print_it,  # action
+          args=('world!',)
+      )
+  )
+  t.action_stop = print_it
+  t.args_stop = ('has been stopped',)
+  
+  t.start()
+  sleep(1)
+  print_it(
+      'current state is {}, current activity is {}'.format(
+          t.state,
+          t.activity
+      )
+  )
+  
+  t.stop()
+  print_it(
+      'current state is {}, current activity is {}'.format(
+          t.state,
+          t.activity
+      )
+  )
+  
+  t.join()
+  print_it(
+      'current state is {}, current activity is {}'.format(
+          t.state,
+          t.activity
+      )
+  )
+  
+The Task object itself is the same as above. Here we do not use it as an
+anonymous Task object. We reference it with variable **t**. The
+reference allows us to get or set arguments. Setting arguments
+modifies the Task. The reference is also used to stop and join the
+Task object (method :py:meth:`~thread_task.Task.join` waits until the
+Task's thread ends).
 
-The Task object itself is nearly the same as above. But we built it
-with function **concat** instead of method append. This is just
-another flavour and you can use the one, you prefer. Class **Sleep**
-(a subclass of Task) is an alternative to setting a duration, but
-Sleep sets an additional timespan of 2 sec., where duration adds a
-waiting time after the execution of print_it to get 2
-sec. alltogether. In our case of a short execution, this makes
-practically no difference.
-   
-Here we did not use an anonymous Task object. We referenced it with
-variable **t**. The reference allows us to get or set
-arguments. Setting arguments modifies the Task. The reference is also
-needed to stop or continue the Task object.
+The attributes **action_stop** and **args_stop** are used to add our
+own logic to the the stopping process. action_stop must be a callable
+and a third attribute **kwargs_stop** allows to set keyword arguments
+for action_stop. action_stop could execute some shutdown commands,
+here it prints a message.
 
-We use the attributes **action_stop** and **args_stop** to add special
-logic for the the stopping process. action_stop must be a callable and
-a third attribute kwargs_stop allows to set keyword arguments for
-action_stop. action_stop could include some shutdown commands, here it
-prints a message. The arguments **action_cont** and **args_cont**
-(together with kwargs_cont) play the same role for the continuation
-process.
+The output was:
 
-Calling the methods **stop** and **cont** does the job of stopping and
-continuing and the output shows, that class **Sleep** can be
-interrupted (as duration would have too). In the middle of the sleeping,
-the stopping takes place. When the Task is continued, it first ends
-its sleeping, then it executes the next callable.
+.. code-block:: none
 
-Our output was:
+  14:43:50.321930 Thread-1  : hello,
+  14:43:51.325888 MainThread: current state is STARTED, current activity is SLEEP
+  14:43:51.326266 MainThread: current state is TO_STOP, current activity is SLEEP
+  14:43:51.326526 Thread-1  : has been stopped
+  14:43:51.327260 MainThread: current state is STOPPED, current activity is NONE
+          
+Method stop was called from thread ``MainThread``, when the root link
+of Task t already had processed its action and waited until its
+duration ended (its activity was **ACTIVITY_SLEEP**). Calling method
+stop (also from thread ``MainThread``) changed the state of Task t
+(but didn't stop it) and interrupted the sleeping. The stopping was
+done by thread ``Thread-1``. This thread called action_stop, this
+thread changed Task t's state from STATE_TO_STOP to STATE_STOPPED and
+this thread was joined, when ``MainThread`` joined Task t.
 
-::
+When ``MainThread`` interacts with Task t, it uses Task's public
+API. Here all the calling of Task t's methods and all the asking
+for its attributes was done from thread ``MainThread``.
 
-   16:04:25.626024 hello,
-   16:04:26.627578 task has been stopped
-   16:04:30.632176 task has been continued
-   16:04:31.631967 world!
 
-There were 1 sec. between starting and stopping and 4 sec. between stopping and continuing.
-The task was designed for a timespan of 2 sec. between ``hello,`` and ``world!``,
-which became 6 sec. with the additional delay between stopping and continuing.
+Long lasting actions
+~~~~~~~~~~~~~~~~~~~~
+
+We modify the program and let the action do the waiting. Less logic
+in the Task object, more in the action.
+
+.. code:: python3
+
+  from thread_task import Task
+  from datetime import datetime
+  from time import sleep
+  from threading import current_thread
+  
+  
+  def print_it(txt: str):
+      print(
+          '{} {:10s}: {}'.format(
+              datetime.now().strftime('%H:%M:%S.%f'),
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  def do_it():
+      print_it('hello,')
+      sleep(2)
+      print_it('world!')
+  
+  
+  t = Task(do_it)
+  t.action_stop = print_it
+  t.args_stop = ('has been stopped',)
+  
+  t.start()
+  sleep(1)
+  print_it(
+      'current state is {}, current activity is {}'.format(
+          t.state,
+          t.activity
+      )
+  )
+  
+  t.stop()
+  print_it(
+      'current state is {}, current activity is {}'.format(
+          t.state,
+          t.activity
+      )
+  )
+  
+  t.join()
+  print_it(
+      'current state is {}, current activity is {}'.format(
+          t.state,
+          t.activity
+      )
+  )
+  
+The Task's single action lasts 2 sec. Let's look, what happened, this
+was the output:
+
+.. code-block:: none
+
+  14:47:31.869959 Thread-1  : hello,
+  14:47:32.870432 MainThread: current state is STARTED, current activity is BUSY
+  14:47:32.870739 MainThread: current state is TO_STOP, current activity is BUSY
+  14:47:33.872388 Thread-1  : world!
+  14:47:33.873112 MainThread: current state is FINISHED, current activity is NONE
+
+There was no stopping! When the Task realized, that its state had
+changed from STATE_STARTED to STATE_TO_STOP, its single action had
+already been done and there was no more waiting, no more chain link,
+there was nothing more to do. Consequently, the state changed from
+STATE_TO_STOP to **STATE_FINISHED**.
+
+Long lasting actions prevent the stopping. Setting a duration is
+different from sleeping in an action. If you want your Tasks stop
+fast, code short actions and let the Task objects do the timing. When
+a Tasks object sleeps, this can be interrupted, but not when an action
+sleeps.
+
+
+Continue
+--------
+
+Any Task object in state STATE_STOPPED can be continued. You can even
+continue a Task in state STATE_TO_STOP, then calling
+:py:meth:`~thread_task.Task.cont` will internally join the currently
+running thread until the state changes to STATE_STOPPED. Calling
+method cont from STATE_FINISHED is also accepted. In this case, it
+silently does nothing.
+
+We append the following code to the :ref:`stopping <stopping_example>` example:
+
+.. code:: python3
+
+  t.action_cont = print_it
+  t.args_cont = ('has been continued',)
+  
+  sleep(4)
+  t.cont()
+  print_it(
+      'current state is {}, current activity is {}'.format(
+          t.state,
+          t.activity
+      )
+  )
+  
+  t.join()
+  print_it(
+      'current state is {}, current activity is {}'.format(
+          t.state,
+          t.activity
+      )
+  )
+  
+**action_cont** and **args_cont** add some special logic to the
+continuation process of a Task object (as you will have expected,
+there is a third one, **kwargs_cont**). The program sleeps 4
+sec. after the end of the stopping, then it starts the continuation
+process by calling method cont. As above, we are interested in Task
+t's state, then we wait until Task t has finished. At the end, we
+again ask for the current state of Task t.
+
+From the appended code, we got this additional lines of output:
+
+.. code-block:: none
+
+  14:43:55.332318 Thread-2  : has been continued
+  14:43:55.332877 MainThread: current state is STARTED, current activity is SLEEP
+  14:43:56.328461 Thread-2  : world!
+  14:43:56.329064 MainThread: current state is FINISHED, current activity is NONE
+  
+Continuing indeed took place 4 sec. after the end of the stopping
+process. Calling method cont created a new thread and named it
+``Thread-2``.
+
+As with stopping, the continuation process does not run under control
+of the thread that called method cont. Task t *remembered*, there was
+a rest of about 1 sec. of its root link's duration. Therefore it sleeps
+this time, then it executes the action of the next chain link, which
+prints ``world!``. After this, thread ``Thread-2`` ended with Task t in the
+state **STATE_FINISHED**.
+
+Again we try to be precise! Continuation also changes the state of the
+Task in two steps. Method cont changes from STATE_STOPPED to
+**STATE_TO_CONTINUE** and starts the new thread (here
+``Thread-2``). This new thread controls the continuation process and
+at the end of the continuation process, it changes from
+STATE_TO_CONTINUE to STATE_STARTED. In our case, there was no chance
+for thread ``MainThread`` to see state STATE_TO_CONTINUE, because
+there was no gap for interruption. Modify the program and add a delay,
+when calling method cont and you will see STATE_TO_CONTINUE.
+
 
 Periodic actions
 ----------------
 
-**Periodic** is another subclass of Task and allows to do things
-periodically.  With **intervall**, it has one more positional argument,
-which is the timespan between two executions of action. The
+**Periodic** is a subclass of Task and allows to do things
+periodically.  With **intervall**, it has one more positional
+argument, which is the timespan between two executions of action. The
 keyword argument **num** limits the number of
 executions. Alternatively, the executions end, when action returns
 ``True``.
 
 .. code:: python
 
-    from thread_task import Task, Periodic
-
-    # introduction
-    print('Help me to give an enthusiastic welcome to our speaker.')
-
-    # speech
-    Periodic(
-        2,  # intervall
-        print,  # action
-        args=('bla',),
-        kwargs={'end': '', 'flush': True},
-        num=3,
-        duration=5
-    ).append(
-        Task(
-            print,  # action
-            duration=1
-        )
-    ).start(2).join()
-
-    # reaction
-    print('Warm applause.')
-    
-This program consists of three parts, the introduction of the speaker,
-the speech und the reaction of the audience. The speech itself is a
-chain of a Periodic and a Task object. It prints the string ``bla``
-three times. Command print is called with two keyword arguments, end
-and flush (see `print
+  from thread_task import concat, Task, Periodic
+  
+  
+  concat(
+      # introduction
+      Task(
+          print,  # action
+          args=('Help me to give an enthusiastic welcome to our speaker.',),
+          duration=2
+      ),
+  
+      # speech
+      Periodic(
+          2,  # intervall
+          print,  # action
+          args=('bla',),
+          kwargs={'end': '', 'flush': True},
+          num=3
+      ),
+      Task(
+          print,  # action
+          duration=1
+      ),
+  
+      # reaction
+      Task(
+          print,  # action
+          args=('Warm applause.',),
+      )
+  ).start()
+  
+This Task object consists of three parts, the introduction of the
+speaker, the speech and the reaction of the audience. All together is
+a chain with four links, a Task, a Periodic and two more Task
+objects. The Periodic prints the string ``bla`` three times. Command
+print is called with two keyword arguments, end and flush (see `print
 <https://docs.python.org/3.8/library/functions.html#print>`_ for the
-details). Between each call of print, there is a timespan of 2 sec. At
-the end, print is called without any arguments, which prints a
-newline. The Periodic is designed for a duration of 5 sec., the Task
-for 1 sec. The speech is not only started, it also is joined. Method
-**join** gives us back the well known chronology. This says, it makes
-the program to wait until the task has finished, then it executes the
-next command.
+details). Between each call of print, there is a timespan of 2
+sec. The next chain link calls print without any arguments, which
+prints a newline. Setting durations for all three Task objects adds
+timespans between the three parts and another timespan at the end.
 
 The output is:
 
 ::
 
-    Help me, to give an enthusiastic welcome to our speaker.
-    blablabla
-    Warm applause.
+  Help me, to give an enthusiastic welcome to our speaker.
+  blablabla
+  Warm applause.
     
 The whole program was executed in 8 sec. After the introduction, there
-was a delay of 2 sec. until the speach began and the speach needed 5
+was a delay of 2 sec. until the speech began and the speech needed 4
 sec. for its three syllables (with newline). Setting a duration for
-the Task made another delay before the audience reacted.
+the last Task of the speech made another delay before the audience
+reacted, which needed one second.
+
 
 Repeated actions
 ----------------
@@ -320,8 +626,9 @@ numbers, which become smaller and smaller in every calling.
 Setting an initial value ``5`` means, that the first
 calling of method step will return ``5``.
 
-Repeated will call method step multiple times and it will react on its
-return values. Per calling, the delay will become 1 sec. less.
+Our Repeated object calls Accelerate's method step multiple times and
+its sleeping duration depends on the return values of method step. Per
+call, the delay becomes 1 sec. less.
 
 The output was:
 
@@ -352,127 +659,134 @@ of them we have seen already.
 
 .. code:: python3
 
-    from thread_task import Task, Periodic, concat
-    from datetime import datetime
-    from time import sleep
-    
-    
-    def print_it(txt: str):
-        print(
-            datetime.now().strftime('%H:%M:%S.%f'),
-            txt
-        )
-    
-    
-    data = {'switch': 'off'}
-    
-    
-    def set_data(data: dict, value: str):
-        data['switch'] = value
-        print_it('set switch to ' + value)
-    
-    
-    def get_data(data: dict) -> bool:
-        value = data['switch']
-        print_it('switch is ' + value)
-        if value == 'on':
-            return True
-        else:
-            return False
-    
-    
-    t_set = concat(
-        Task(
-            set_data,
-            args=(data, 'on'),
-            action_stop=print_it,
-            args_stop=('*** t_set has been stopped',),
-            action_cont=print_it,
-            args_cont=('*** t_set has been continued',)
-        ),
-        Task(
-            print_it,
-            args=('t_set has finished',)
-        )
-    )
-    
-    t = concat(
-        Task(
-            t_set.start,
-            args=(4.5,),
-            action_stop=print_it,
-            args_stop=('*** t has been stopped',),
-            action_cont=print_it,
-            args_cont=('*** t has been continued',),
-        ),
-        Periodic(
-            1,
-            get_data,
-            args=(data,)
-        ),
-        Task(
-            print_it,
-            args=('t has finished',)
-        )
-    )
-    
-    t.start()
-    sleep(1.5)
-    t.stop()
-    sleep(3.5)
-    t.cont()
-    
+  from thread_task import concat, Task, Periodic
+  from threading import current_thread
+  from datetime import datetime
+  from time import sleep
+  
+  
+  def print_it(txt: str):
+      print(
+          '{} {:10s}: {}'.format(
+              datetime.now().strftime('%H:%M:%S.%f'),
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  data = {'switch': False}
+  
+  
+  def set_data(data: dict, value: bool):
+      data['switch'] = value
+      print_it('set switch to ' + str(value))
+  
+  
+  def get_data(data: dict) -> bool:
+      value = data['switch']
+      print_it('switch is ' + str(value))
+      return value
+  
+  
+  t_child = Task(
+      set_data,
+      args=(data, True),
+      action_start=print_it,
+      args_start=('*** t_child has been started',),
+      action_stop=print_it,
+      args_stop=('*** t_child has been stopped',),
+      action_cont=print_it,
+      args_cont=('*** t_child has been continued',),
+      action_final=print_it,
+      args_final=('*** t_child has finished',)
+  )
+  
+  t_parent = concat(
+      Task(
+          t_child.start,
+          args=(4.5,),
+          action_start=print_it,
+          args_start=('*** t_parent has been started',),
+          action_stop=print_it,
+          args_stop=('*** t_parent has been stopped',),
+          action_cont=print_it,
+          args_cont=('*** t_parent has been continued',),
+          action_final=print_it,
+          args_final=('*** t_parent has finished',),
+      ),
+      Periodic(
+          1,
+          get_data,
+          args=(data,)
+      )
+  )
+  
+  t_parent.start()
+  sleep(1.5)
+  t_parent.stop()
+  sleep(3.5)
+  t_parent.cont()
+        
 This is a bit more complex than the other examples! We create 2 Task
-objects **t_set**, and **t** and **t** becomes parent of **t_set**.
+objects **t_child**, and **t_parent** and t_parent becomes parent of
+t_child when starting it.
 
 **data** is a mutable data object. We use it for the communication
-between tasks. Function **set_data** writes values to the data
-obeject, function **get_data** reads them.  In our case, get_data is
-wrapped into a Periodic and will be called once per second.  If
-get_data finds the value ``on``, it returns ``True``, which ends the
-Periodic.  set_data is wrapped into t_set, a Task object that sets the
-data object to ``on``.
+between t_child and t_parent. Function **set_data** writes values into
+the data object, function **get_data** reads them.  In our case,
+get_data is wrapped into a Periodic and will be called once per
+second.  Function get_data returns the value it finds, returning
+``True`` ends the Periodic. Function set_data is wrapped into t_child,
+a Task object that sets the data object to ``True``.
 
-t starts t_set with a delay of 4.5 sec. We added some text output to
-the Task objects, which help us to understand, whats happening.
+t_parent starts t_child with a delay of 4.5 sec. We added some text
+output to the Task objects, which help us to understand, what happens.
 
 The output was:
 
 ::
 
-    17:17:17.191292 switch is off
-    17:17:18.191582 switch is off
-    17:17:18.692961 *** t_set has been stopped
-    17:17:18.693441 *** t has been stopped
-    17:17:22.197571 *** t has been continued
-    17:17:22.695968 switch is off
-    17:17:23.695969 switch is off
-    17:17:24.695989 switch is off
-    17:17:25.196958 *** t_set has been continued
-    17:17:25.197253 set switch to on
-    17:17:25.197407 t_set has finished
-    17:17:25.695987 switch is on
-    17:17:25.696277 t has finished
-    
-The first two rows were printed by **get_data** and found the data
-object in its initial state. As expected, there was a timespan of 1
-sec. between these two printings.
+  17:21:50.419311 Thread-1  : *** t_parent has been started
+  17:21:50.421131 Thread-1  : switch is False
+  17:21:51.421496 Thread-1  : switch is False
+  17:21:51.921677 Thread-1  : *** t_parent has been stopped
+  17:21:55.425590 Thread-3  : *** t_parent has been continued
+  17:21:56.013249 Thread-3  : switch is False
+  17:21:57.013476 Thread-3  : switch is False
+  17:21:58.013728 Thread-3  : switch is False
+  17:21:58.425146 Thread-4  : *** t_child has been started
+  17:21:58.425511 Thread-4  : set switch to True
+  17:21:58.425682 Thread-4  : *** t_child has finished
+  17:21:59.013946 Thread-3  : switch is True
+  17:21:59.014254 Thread-3  : *** t_parent has finished
+      
+The first row tells us, that starting Task t_parent created
+``Thread-1``. The next two rows were printed by get_data and found the
+data object in its initial state. As expected, there was a timespan of
+1 sec. between these two printings.
 
-1.5 sec. after starting **t**, we stopped it and **t** stopped its
-child **t_set** before it stopped itself.  These two stoppings happend
-within a very short time.
+We don't find a message about stopping and continuing Task t_child and
+the message about its starting appears late. This is because of the
+delay. Task t_child has to start 4.5 sec. after Task t_parent. And
+what about ``Thread-2``, did it exist? Yes it did! With starting
+t_child it was created, directly after ``Thread-1``, but after its
+creation it had to wait and nothing else. When Task t was told to
+stop, it directly called method stop of Task t_child and t_child
+directly ended its waiting. Task t_child *knew*, that it had not yet
+started and therefore it *knew*, there was nothing to stop.
 
-Another 3.5 sec. later we continued **t** and it continued its child.
-**t** *remebers*, it was stopped in the middle of two actions of its
-Periodic. This makes it to wait 0.5 sec. until its next call of
-**get_data**.  **t_set** had a rest delay of 3 sec., which made it
+3.5 sec. after its stopping, we continued t_parent and it continued
+its child.  t_parent *remebered*, it was stopped in the middle of two
+actions of its Periodic. This made it to wait 0.5 sec. until its next
+call of get_data. t_child had a rest delay of 3 sec., which made it
 answer this timespan after its continuation. Directly after this first
-reaction, it called **set_data**, which changed the data object, then
-it finished.
+reaction, it called set_data, which changed the data object, then it
+finished.
 
-When **get_data** came to its next reading, it found the switch ``on``
-and returned ``True``. This ended the Periodic and the final printing
-came from the last chain link in **t**.
+When get_data came to its next reading, it found the switch ``True``
+and returned this value. This ended the Periodic and the final
+printing came from the finishing process of Task t_parent.
 
 
 Error Handling
@@ -506,7 +820,7 @@ one of the threads, this does not concern the other ones.
     t1.start(1)
     t2.start()
 
-This program starts 2 Tasks and one of them raises an
+This program starts two Tasks and one of them raises an
 error. Raising RuntimeError will concern Task t1, but
 not Task t2 nor the main program execution.
 
@@ -537,7 +851,7 @@ The output was:
     t1 finished regularly
 
 Indeed, the main program execution and t1 finish regularly, even when
-t2 raised an exception.
+t2 raises an exception.
 
 Default exception handler
 -------------------------
@@ -593,17 +907,21 @@ produced this output:
 The first line shows, that method stop was called. The Task ends in
 STATE_STOPPED. It can be restarted, but not continued.
 
-If your Task object is structured as a chain or tree, the exception handler
-with the highets priority will be called. We start with the exception handler of
-the chain link, where the exception occured and then recusively do:
+If your Task object is structured as a chain or tree, the exception
+handler with the highest priority will be called. We start with the
+exception handler of the chain link, where the exception occured and
+then recusively do:
 
 - if there is an explicitly setted exc_handler: call it
-- if the current position is not the root link of a chain: call the exception handler of the root link.
-- if the current position is a child Task: call the exception handler of the parent Task's root link.
-- call the default exception handler of the current position, which does stopping at the current
-  position, then raises the exception.
+- else if the current position is not the root link of a chain: call
+  the exception handler of the root link.
+- else if the current position is a child Task: call the exception
+  handler of the parent Task's root link.
+- else: call the default exception handler of the current position,
+  which does stopping at the current position, then raises the
+  exception.
 
-In other words: Climbs up the hierarchy of the structure. If, on
+In other words: It climbs up the hierarchy of the structure. If, on
 its way, it finds an explicitly setted exc_handler, it calls it. If it
 doesn't find any, then it calls the default exception handler at the
 top of the hierarchy, which does stopping at the top of the hierarchy
