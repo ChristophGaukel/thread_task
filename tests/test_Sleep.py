@@ -121,7 +121,7 @@ def test_cont(capsys):
 
     # restart from STATE_STOPPED
     t.start()
-    sleep(.2)
+    sleep(.201)
     assert t.state == STATE_STARTED
     assert t.activity == ACTIVITY_SLEEP
     t.stop().join()

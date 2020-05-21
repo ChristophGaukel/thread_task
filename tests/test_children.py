@@ -10,6 +10,7 @@ from thread_task import (
     STATE_FINISHED,
     ACTIVITY_SLEEP,
     ACTIVITY_JOIN,
+    ACTIVITY_BUSY,
     ACTIVITY_NONE
 )
 from time import time, sleep
@@ -70,16 +71,18 @@ def test_standard(capsys):
     sleep(.1)
     assert t.state == STATE_STARTED
     assert t.activity == ACTIVITY_SLEEP
+    assert len(t.children) == 1
 
     t.stop().join()
     assert t.state == STATE_STOPPED
     assert t.activity == ACTIVITY_NONE
+    assert len(t.children) == 1
     captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == \
         '0.0:parent_started 0.0:child_started 0.0:child 0.1:child_stopped '
 
-    t.cont(.1).join()
+    t.cont(.1, thread=False)
     assert t.state == STATE_FINISHED
     assert t.activity == ACTIVITY_NONE
     captured = capsys.readouterr()
@@ -87,6 +90,15 @@ def test_standard(capsys):
     assert captured.out == \
         '0.2:child_continued 0.3:parent ' + \
         '0.5:child_finished 0.5:parent_finished '
+
+    t.start(thread=False)
+    assert t.state == STATE_FINISHED
+    assert t.activity == ACTIVITY_NONE
+    captured = capsys.readouterr()
+    assert captured.err == ''
+    assert captured.out == \
+        '0.5:parent_started 0.5:child_started ' + \
+        '0.5:child 0.7:parent 0.9:child_finished 0.9:parent_finished '
 
 
 def test_periodic(capsys):
@@ -122,7 +134,7 @@ def test_periodic(capsys):
     t.start()
     sleep(.3)
     assert t.state == STATE_STARTED
-    assert t.activity == ACTIVITY_JOIN
+    assert t.activity == ACTIVITY_BUSY
     captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == \
@@ -138,7 +150,7 @@ def test_periodic(capsys):
         '0.3:parent_stopped '
 
     sleep(.1)
-    t.cont().join()
+    t.cont(thread=False)
     assert t.state == STATE_FINISHED
     captured = capsys.readouterr()
     assert captured.err == ''
@@ -179,7 +191,7 @@ def test_repeated(capsys):
     t.start()
     sleep(.3)
     assert t.state == STATE_STARTED
-    assert t.activity == ACTIVITY_JOIN
+    assert t.activity == ACTIVITY_BUSY
 
     t.stop().join()
     assert t.state == STATE_STOPPED
@@ -192,7 +204,7 @@ def test_repeated(capsys):
         '0.3:child_stopped 0.3:parent_stopped '
 
     sleep(.1)
-    t.cont().join()
+    t.cont(thread=False)
     assert t.state == STATE_FINISHED
     captured = capsys.readouterr()
     assert captured.err == ''
@@ -309,11 +321,13 @@ def test_join_02(capsys):
         Task(t1.join)
     )
     t2.start()
-    sleep(.001)
+    sleep(.005)
     assert t1.state == STATE_STARTED
     assert t1.activity == ACTIVITY_SLEEP
     assert t2.state == STATE_STARTED
     assert t2.activity == ACTIVITY_SLEEP
+    assert t1 in t2.children
+    assert t2 == t1.parent
     captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == '0.0:t2_started 0.0:t1_started 0.0:t1 '
@@ -321,6 +335,8 @@ def test_join_02(capsys):
     t2.stop().join()
     assert t1.state == STATE_STOPPED
     assert t2.state == STATE_STOPPED
+    assert t1 in t2.children
+    assert t2 == t1.parent
     captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == '0.0:t1_stopped 0.0:t2_stopped '
@@ -330,6 +346,8 @@ def test_join_02(capsys):
     assert t1.state == STATE_STARTED
     assert t2.state == STATE_STARTED
     assert t2.activity == ACTIVITY_JOIN
+    assert t1 in t2.children
+    assert t2 == t1.parent
     captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == '0.0:t2_continued 0.0:t1_continued 0.1:t2 '
@@ -337,16 +355,20 @@ def test_join_02(capsys):
     t2.stop().join()
     assert t1.state == STATE_STOPPED
     assert t2.state == STATE_STOPPED
+    assert t1 in t2.children
+    assert t2 == t1.parent
     captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == '0.1:t1_stopped 0.1:t2_stopped '
 
     t2.cont()
-    sleep(.001)
+    sleep(.005)
     assert t1.state == STATE_STARTED
     assert t1.activity == ACTIVITY_SLEEP
     assert t2.state == STATE_STARTED
     assert t2.activity == ACTIVITY_JOIN
+    assert t1 in t2.children
+    assert t2 == t1.parent
     captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == '0.1:t2_continued 0.1:t1_continued '
@@ -354,6 +376,8 @@ def test_join_02(capsys):
     t2.join()
     assert t1.state == STATE_FINISHED
     assert t2.state == STATE_FINISHED
+    assert len(t2.children) == 0
+    assert t1.parent is None
     captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == '0.2:t1_finished 0.2:t2_finished '

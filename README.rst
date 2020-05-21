@@ -27,5 +27,5 @@ The following task types exist:
   but can be stopped and continued
 
 Read
-[thread-task.readthedocs.io](https://thread-task.readthedocs.io/en/latest/ "thread_task")
+`thread-task.readthedocs.io <https://thread-task.readthedocs.io/en/latest/>`_
 for more details.

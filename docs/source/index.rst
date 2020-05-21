@@ -244,6 +244,54 @@ links in a chain. If you prefer appending or concatenating, that's
 your choice.
 
 
+Threadless Task
+---------------
+
+Sometimes Tasks are used for organization, not for
+parallelization. For this situations, you can start a thread with the
+keyword argument **thread=False**.
+
+.. code:: python3
+
+  from thread_task import Task, concat
+  from datetime import datetime
+  from threading import current_thread
+  
+  
+  def print_it(txt: str):
+      print(
+          '{} {:10s}: {}'.format(
+              datetime.now().strftime('%H:%M:%S.%f'),
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  concat(
+      Task(
+          print_it,  # action
+          args=('hello,',),
+          duration=2
+      ),
+      Task(
+          print_it,  # action
+          args=('world!',)
+      )
+  ).start(thread=False)
+
+The output:
+
+.. code-block:: none
+          
+  09:59:12.688125 MainThread: hello,
+  09:59:14.688525 MainThread: world!
+
+The Task organizes the two second gap between both printings, but all
+of it is executed by thread ``MainThread``. Setting *thread=False* is not
+recursive! If inside a Task some more Tasks are started, they will run
+in their own threads.
+
 Stopping
 --------
 
@@ -777,7 +825,7 @@ directly ended its waiting. Task t_child *knew*, that it had not yet
 started and therefore it *knew*, there was nothing to stop.
 
 3.5 sec. after its stopping, we continued t_parent and it continued
-its child.  t_parent *remebered*, it was stopped in the middle of two
+its child.  t_parent *remembered*, it was stopped in the middle of two
 actions of its Periodic. This made it to wait 0.5 sec. until its next
 call of get_data. t_child had a rest delay of 3 sec., which made it
 answer this timespan after its continuation. Directly after this first
@@ -821,8 +869,8 @@ one of the threads, this does not concern the other ones.
     t2.start()
 
 This program starts two Tasks and one of them raises an
-error. Raising RuntimeError will concern Task t1, but
-not Task t2 nor the main program execution.
+error. Raising RuntimeError will concern Task t2, but
+not Task t1 nor the main program execution.
 
 The output was:
 
@@ -912,19 +960,19 @@ handler with the highest priority will be called. We start with the
 exception handler of the chain link, where the exception occured and
 then recusively do:
 
-- if there is an explicitly setted exc_handler: call it
-- else if the current position is not the root link of a chain: call
+- if there is an explicitly set exc_handler: call it
+- else if the current chain link is not the root link of the chain: call
   the exception handler of the root link.
-- else if the current position is a child Task: call the exception
+- else if the current Task is a child Task: call the exception
   handler of the parent Task's root link.
-- else: call the default exception handler of the current position,
-  which does stopping at the current position, then raises the
+- else: call the default exception handler of the current chain link,
+  which does stopping the current Task, then raises the
   exception.
 
 In other words: It climbs up the hierarchy of the structure. If, on
 its way, it finds an explicitly setted exc_handler, it calls it. If it
 doesn't find any, then it calls the default exception handler at the
-top of the hierarchy, which does stopping at the top of the hierarchy
+top of the hierarchy. The default exception handler calls method stop
 and then raises the exception.
 
 User defined exception handlers
@@ -1069,7 +1117,149 @@ The output was:
    t_child finished regularly
    t_parent finished regularly
 
-   
+Threadless Tasks
+----------------
+
+If you start a Task with argument ``thread=False`` and
+the Exception was raised by an action of this Task, the default error
+handling becomes very familiar.
+
+.. code:: python3
+
+    from thread_task import Task
+
+
+    def raise_error():
+        raise RuntimeError
+    
+    
+    Task(
+        raise_error,
+        action_stop=print,
+        args_stop=('t has been stopped',)
+    ).start(thread=False)
+
+    print('regularly finished')
+
+The output:
+
+.. code-block:: none
+
+  t has been stopped
+  Traceback (most recent call last):
+    File "./test_thread_task", line 14, in <module>
+      ).start(thread=False)
+    File "/home/christoph/src/python3/tmp/thread_task/task.py", line 723, in start
+      self._start2(thread, _parent)
+    File "/home/christoph/src/python3/tmp/thread_task/task.py", line 821, in _start2
+      self._execute()
+    File "/home/christoph/src/python3/tmp/thread_task/task.py", line 1175, in _execute
+      self._handle_exc(exc)
+    File "/home/christoph/src/python3/tmp/thread_task/task.py", line 619, in _handle_exc
+      raise exc
+    File "/home/christoph/src/python3/tmp/thread_task/task.py", line 1170, in _execute
+      gap = self._wrapper()
+    File "/home/christoph/src/python3/tmp/thread_task/task.py", line 1253, in _wrapper
+      self._action(*self._args, **self._kwargs)
+    File "./test_thread_task", line 7, in raise_error
+      raise RuntimeError
+  RuntimeError
+  
+The Task was executed by ``MainThread`` and when its action raised an
+exception, the Task has been stopped, then it raised the exception.
+The last command of the program was not executed because both, the
+Task and the main program were executed by the same thread.
+
+
+Hints and Tricks
+================
+
+After the first own experience, it may be helpfull to get some hints.
+
+Wrapping a Task into a Task
+---------------------------
+
+Tasks lose most of their special behaviour, when they are appended to
+other tasks. Sometimes this is a real pity, e.g. if there is special
+logic for stopping and continuing. Subclasses with modified methods
+start, stop or cont will also be destroyed if they become a chain link
+of another task.
+
+Wrapping a task into a default Task object is the solution of
+choice. Then the default Task becomes the chain link and the modified
+task becomes a child. If this child is started with *thread=False*, it
+behaves like a chain link but keeps all its special behaviour.
+
+.. code:: python3
+
+  from thread_task import Task, concat
+  
+  
+  class MyTask(Task):
+      def start(self, *args, **kwargs):
+          print('this is the special start behaviour of MyTask')
+          super().start(*args, **kwargs)
+  
+  
+  t = concat(
+      Task(
+          print,
+          args=("I'm the root task",)
+      ),
+      Task(MyTask(
+          print,
+          args=("I'm of type Myclass",)
+      )),
+      Task(
+          print,
+          args=("I'm the last chain link",)
+      )
+  ).start()
+
+It's syntactic sugar, that wrapping a Task into another Task is that
+simple. The standard formulation of this would be:
+
+.. code:: python3
+
+  from thread_task import Task, concat
+  
+  
+  class MyTask(Task):
+      def start(self, *args, **kwargs):
+          print('this is the special start behaviour of MyTask')
+          super().start(*args, **kwargs)
+  
+  
+  t = concat(
+      Task(
+          print,  # action
+          args=("I'm the root task",)
+      ),
+      Task(
+          MyTask(
+              print,  # action
+              args=("I'm of type MyTask",)
+          ).start,
+          kwargs={'thread': False}
+      ),
+      Task(
+          print,
+          args=("I'm the last chain link",)
+      ),
+  ).start()
+
+Method *start* of the MyTask object becomes the standard Task's action
+and starting it threadless prevents parallel execution, which makes it
+behave like a chain link. Both variants write this output:
+
+.. code-block:: none
+
+  I'm the root task
+  this is the special start behaviour of MyTask
+  I'm of type MyTask
+  I'm the last chain link
+
+
 API documentation
 =================
 .. automodule:: thread_task
@@ -1084,25 +1274,25 @@ Classes
 Task
 ~~~~
 
-.. autoclass:: Task
+.. autoclass:: thread_task.Task
    :members:
 
 Sleep
 ~~~~~
 
-.. autoclass:: Sleep
+.. autoclass:: thread_task.Sleep
    :members:
 
 Periodic
 ~~~~~~~~
 
-.. autoclass:: Periodic
+.. autoclass:: thread_task.Periodic
    :members:
 
 Repeated
 ~~~~~~~~
 
-.. autoclass:: Repeated
+.. autoclass:: thread_task.Repeated
    :members:
 
       

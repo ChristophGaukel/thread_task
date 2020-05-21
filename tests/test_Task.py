@@ -18,8 +18,8 @@ def test_standard(capsys):
         kwargs={'end': ''}
     ).start()
     t.join()
-    captured = capsys.readouterr()
     assert t.state == STATE_FINISHED
+    captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == 'hello, world!'
 
