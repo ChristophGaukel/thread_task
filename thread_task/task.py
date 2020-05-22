@@ -248,13 +248,16 @@ class Task:
     @property
     def children(self) -> tuple('Task'):
         """
-        current children Tasks
+        current children Tasks (inclusive threadless child)
         """
         assert self._root is self, \
             "only root tasks can be asked about their children"
         with self._lock:
-            values = self._children
-        return tuple(values)
+            children = tuple(self._children)
+            threadless_child = self._threadless_child
+        if threadless_child is not None:
+            children = children + (threadless_child,)
+        return children
 
     @root.setter
     def root(self, task):
@@ -774,6 +777,23 @@ class Task:
                 raise RuntimeError('concurrent method calling')
 
         if self._state == STATE_STOPPED:
+            self._time_called_cont = None
+            self._time_called_stop = None
+
+            # reset parent-child connections
+            for child in self._children:
+                with child._lock:
+                    child._parent = None
+                child._lock.release()
+            self._children = []
+            if self._threadless_child is not None:
+                with self._threadless_child._lock:
+                    self._threadless_child._parent = None
+                self._threadless_child = None
+            self._cont_join = None
+            if self._parent is not None and self._parent is not _parent:
+                self._cut_parent_child_connection()
+
             if self._current is not None:
                 # restart with the root link
                 self._current._cnt = 0
@@ -782,15 +802,7 @@ class Task:
                 self._current = None
                 self._current_scheduled = None
 
-        # parent-child connection
-        if _parent is not None and _parent is self._parent:
-            self._parent_child_connection(thread, _parent)
-        elif _parent is not None and self._parent is not None:
-            self._cut_parent_child_connection()
-            self._parent_child_connection(thread, _parent)
-        elif _parent is None and self._parent is not None:
-            self._cut_parent_child_connection()
-        elif _parent is not None and self._parent is None:
+        if _parent is not None:
             self._parent_child_connection(thread, _parent)
 
         self._state = STATE_TO_START
@@ -1306,11 +1318,11 @@ class Task:
             self._root._cont_join = None
 
     def _final(self, outstand=False) -> None:
-        assert self._root._lock.locked(), \
-            '_final has been called unlocked'
-        assert self._root._state in (STATE_STARTED, STATE_TO_STOP), \
-            '_final has been called in incorrect state: ' + \
-            self._root._state
+        # assert self._root._lock.locked(), \
+        #     '_final has been called unlocked'
+        # assert self._root._state in (STATE_STARTED, STATE_TO_STOP), \
+        #     '_final has been called in incorrect state: ' + \
+        #     self._root._state
         # returns unlocked
 
         self._join_children()
@@ -1325,7 +1337,7 @@ class Task:
             if self._root._delay < 0:
                 self._root._delay = None
             self._root._state = STATE_STOPPED
-            if not self._root._stay_child:
+            if self._root._parent is not None and not self._root._stay_child:
                 self._cut_parent_child_connection()
             self._root._stay_child = None
 
@@ -1336,7 +1348,7 @@ class Task:
             if self._root._delay < 0:
                 self._root._delay = None
             self._root._state = STATE_STOPPED
-            if not self._root._stay_child:
+            if self._root._parent is not None and not self._root._stay_child:
                 self._cut_parent_child_connection()
             self._root._stay_child = None
 
@@ -1344,6 +1356,7 @@ class Task:
         elif (
                 self._next is None and
                 not self._root._children and
+                self._root._threadless_child is None and
                 not self._duration_rest and
                 self._gap is None and
                 (self._num is None or self._cnt == self._num) and
@@ -1360,7 +1373,7 @@ class Task:
                     **self._root._kwargs_stop
                 )
             self._root._state = STATE_STOPPED
-            if not self._root._stay_child:
+            if self._root._parent is not None and not self._root._stay_child:
                 self._cut_parent_child_connection()
             self._root._stay_child = None
 
@@ -1372,11 +1385,13 @@ class Task:
                     **self._root._kwargs_final
                 )
 
-            self._cut_parent_child_connection()
-
             self._root._thread = None
             self._root._thread_start = None
             self._root._thread_cont = None
+
+            if self._root._parent is not None:
+                self._cut_parent_child_connection()
+
             self._root._current = None
             self._root._current_scheduled = None
             self._root._delay = None
@@ -1399,8 +1414,7 @@ class Task:
         self._root._activity = ACTIVITY_NONE
 
     def _parent_child_connection(self, thread: bool, _parent: 'Task'):
-        if _parent is not None:
-            _parent._lock.acquire()
+        with _parent._lock:
             if not thread:
                 _parent._threadless_child = self._root
                 if self._root in _parent._children:
@@ -1412,12 +1426,10 @@ class Task:
                 _parent._children.append(self._root)
                 if _parent._threadless_child is self._root:
                     _parent._threadless_child = None
-            _parent._lock.release()
-            self._root._parent = _parent
+        self._root._parent = _parent
 
     def _cut_parent_child_connection(self):
-        if self._root._parent is not None:
-            self._root._parent._lock.acquire()
+        with self._root._parent._lock:
             if self._root is self._root._parent._threadless_child:
                 self._root._parent._threadless_child = None
             elif self._root in self._root._parent._children:
@@ -1425,5 +1437,4 @@ class Task:
                 self._root._parent._children.pop(ind)
             if self._root is self._root._parent._cont_join:
                 self._root._parent._cont_join = None
-            self._root._parent._lock.release()
-            self._root._parent = None
+        self._root._parent = None

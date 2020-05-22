@@ -3,6 +3,7 @@ from thread_task import (
     Task,
     Periodic,
     Repeated,
+    STATE_INIT,
     STATE_TO_START,
     STATE_STARTED,
     STATE_TO_STOP,
@@ -35,6 +36,9 @@ def print_it(ts: Timespan, str):
         ),
         end=' '
     )
+
+
+def do_nothing(): pass
 
 
 def test_standard(capsys):
@@ -383,6 +387,57 @@ def test_join_02(capsys):
     assert captured.out == '0.2:t1_finished 0.2:t2_finished '
 
 
+def test_join_03(capsys):
+    '''stop child from outside --> no continuous joining'''
+
+    ts = Timespan()
+
+    t_child = Task(print_it, args=(ts, 'child'), duration=.2)
+    t_parent = concat(
+        Task(
+            print_it,
+            args=(ts, 'parent-root-link'),
+            duration=.1,
+            action_final=print_it,
+            args_final=(ts, 'parent-finished')
+        ),
+        Task(t_child.start),
+        Task(t_child.join),
+        Task(print_it, args=(ts, 'parent-link-4'), duration=.1)
+    ).start()
+
+    sleep(.2)
+    assert t_parent.state == STATE_STARTED
+    assert t_parent.activity == ACTIVITY_JOIN
+    assert t_child.state == STATE_STARTED
+    assert t_child.activity == ACTIVITY_SLEEP
+
+    t_child.stop().join()
+    assert t_parent.state == STATE_STARTED
+    assert t_parent.activity == ACTIVITY_SLEEP
+    assert t_child.state == STATE_STOPPED
+    assert t_child.activity == ACTIVITY_NONE
+    assert len(t_parent.children) == 0
+    assert t_child.parent is None
+    captured = capsys.readouterr()
+    assert captured.err == ''
+    assert captured.out == '0.0:parent-root-link 0.1:child 0.2:parent-link-4 '
+
+    t_parent.stop().join()
+    assert t_parent.state == STATE_STOPPED
+    captured = capsys.readouterr()
+    assert captured.err == ''
+    assert captured.out == ''
+
+    sleep(.2)
+    t_parent.cont().join()
+    assert t_parent.state == STATE_FINISHED
+    assert t_child.state == STATE_STOPPED
+    captured = capsys.readouterr()
+    assert captured.err == ''
+    assert captured.out == '0.5:parent-finished '
+
+
 def test_cont(capsys):
     '''stopping and continuing a child'''
 
@@ -509,3 +564,115 @@ def test_cont(capsys):
     captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == '0.8:t1_finished 0.8:t2_finished '
+
+
+def test_links():
+    '''creation and deletion of parent-child links'''
+
+    t_child = Task(do_nothing, duration=.1)
+    t_parent = concat(
+        Task(do_nothing, duration=.1),
+        Task(t_child.start),
+        Task(do_nothing, duration=.2)
+    ).start()
+    sleep(.05)
+    assert t_child.state == STATE_INIT
+    assert len(t_parent.children) == 0
+    assert t_child.parent is None
+    sleep(.1)
+    assert t_child.state == STATE_STARTED
+    assert t_child in t_parent.children
+    assert t_child.parent is t_parent
+    sleep(.1)
+    assert t_child.state == STATE_FINISHED
+    assert t_parent.state == STATE_STARTED
+    assert len(t_parent.children) == 0
+    assert t_child.parent is None
+
+
+def test_links_threadless():
+    '''threadless child: creation and deletion of parent-child links'''
+
+    t_child = Task(do_nothing, duration=.1)
+    t_parent = concat(
+        Task(do_nothing, duration=.1),
+        Task(t_child),
+        Task(do_nothing, duration=.1)
+    ).start()
+    sleep(.05)
+    assert t_child.state == STATE_INIT
+    assert len(t_parent.children) == 0
+    assert t_child.parent is None
+    sleep(.1)
+    assert t_child.state == STATE_STARTED
+    assert t_child in t_parent.children
+    assert t_child.parent is t_parent
+    sleep(.1)
+    assert t_child.state == STATE_FINISHED
+    assert t_parent.state == STATE_STARTED
+    assert len(t_parent.children) == 0
+    assert t_child.parent is None
+
+
+def test_links_restart():
+    '''restart deletes parent-child links'''
+
+    t_child = Task(do_nothing, duration=.1)
+    t_parent = concat(
+        Task(do_nothing, duration=.1),
+        Task(t_child),
+        Task(do_nothing, duration=.1)
+    ).start()
+    sleep(.15)
+    t_parent.stop().join()
+    assert t_parent.state == STATE_STOPPED
+    assert t_child.state == STATE_STOPPED
+    assert t_child in t_parent.children
+    assert t_child.parent is t_parent
+    t_parent.start()
+    sleep(.05)
+    assert t_parent.state == STATE_STARTED
+    assert t_child.state == STATE_STOPPED
+    assert len(t_parent.children) == 0
+    assert t_child.parent is None
+
+
+def test_links_stop():
+    '''stop child from outside'''
+
+    t_child = Task(do_nothing, duration=.1)
+    t_parent = concat(
+        Task(do_nothing, duration=.1),
+        Task(t_child.start),
+        Task(do_nothing, duration=.1)
+    ).start()
+    sleep(.15)
+    t_child.stop()
+    sleep(.01)
+    assert t_parent.state == STATE_STARTED
+    assert t_child.state == STATE_STOPPED
+    assert len(t_parent.children) == 0
+    assert t_child.parent is None
+    t_parent.stop()
+    sleep(.01)
+    assert t_parent.state == STATE_STOPPED
+
+
+def test_links_threadless_stop():
+    '''stop threadless child from outside'''
+
+    t_child = Task(do_nothing, duration=.1)
+    t_parent = concat(
+        Task(do_nothing, duration=.1),
+        Task(t_child),
+        Task(do_nothing, duration=.1)
+    ).start()
+    sleep(.15)
+    t_child.stop()
+    sleep(.01)
+    assert t_parent.state == STATE_STARTED
+    assert t_child.state == STATE_STOPPED
+    assert len(t_parent.children) == 0
+    assert t_child.parent is None
+    t_parent.stop().join()
+    assert t_parent.state == STATE_STOPPED
