@@ -1,5 +1,6 @@
 from thread_task import (
     Repeated,
+    Task,
     STATE_STARTED,
     STATE_STOPPED,
     STATE_FINISHED,
@@ -28,6 +29,18 @@ def print_it(ts: Timespan, str):
         ),
         end=' '
     )
+
+
+def print_it_long_lasting(ts, str):
+    print(
+        '{:2.1f}:{}'.format(
+            ts.timespan(1),
+            str
+        ),
+        end=' '
+    )
+    sleep(.1)
+    return 0.1
 
 
 class Accelerate:
@@ -100,3 +113,84 @@ def test_num(capsys):
     assert t.state == STATE_FINISHED
     assert captured.err == ''
     assert captured.out == '0.0:started 0.0:hi 0.0:hi 0.1:finished '
+
+
+def test_long_lasting(capsys):
+
+    ts = Timespan()
+
+    t = Repeated(
+        print_it_long_lasting,
+        args=(ts, 'hi'),
+        num=2,
+        duration=.3,
+        action_start=print_it,
+        args_start=(ts, 'started'),
+        action_final=print_it,
+        args_final=(ts, 'finished')
+    ).start().join()
+    captured = capsys.readouterr()
+    assert t.state == STATE_FINISHED
+    assert captured.err == ''
+    assert captured.out == '0.0:started 0.0:hi 0.1:hi 0.3:finished '
+
+
+def test_netto_time(capsys):
+
+    ts = Timespan()
+
+    t = Repeated(
+        print_it_long_lasting,
+        args=(ts, 'hi'),
+        num=2,
+        duration=.3,
+        netto_time=True,
+        action_start=print_it,
+        args_start=(ts, 'started'),
+        action_final=print_it,
+        args_final=(ts, 'finished')
+    ).start(thread=False)
+    captured = capsys.readouterr()
+    assert t.state == STATE_FINISHED
+    assert captured.err == ''
+    assert captured.out == '0.0:started 0.0:hi 0.2:hi 0.3:finished '
+
+
+def test_threadless_child(capsys):
+
+    ts = Timespan()
+
+    t = Task(Repeated(
+        print_it_long_lasting,
+        args=(ts, 'hi'),
+        num=2,
+        duration=.3,
+        netto_time=True,
+        action_start=print_it,
+        args_start=(ts, 'started'),
+        action_final=print_it,
+        args_final=(ts, 'finished')
+    )).start(thread=False)
+    captured = capsys.readouterr()
+    assert t.state == STATE_FINISHED
+    assert captured.err == ''
+    assert captured.out == '0.0:started 0.0:hi 0.2:hi 0.3:finished '
+
+
+def test_threadless_child_02(capsys):
+
+    ts = Timespan()
+
+    t = Repeated(
+        Task(print_it_long_lasting, args=(ts, 'hi')),
+        num=2,
+        duration=.3,
+        action_start=print_it,
+        args_start=(ts, 'started'),
+        action_final=print_it,
+        args_final=(ts, 'finished')
+    ).start(thread=False)
+    captured = capsys.readouterr()
+    assert t.state == STATE_FINISHED
+    assert captured.err == ''
+    assert captured.out == '0.0:started 0.0:hi 0.1:hi 0.3:finished '

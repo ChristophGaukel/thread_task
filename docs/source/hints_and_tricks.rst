@@ -174,7 +174,7 @@ when an action sleeps.
 Never join a threadless child
 -----------------------------
 
-Joining a threadless child does not do the expeted. Joining targets
+Joining a threadless child does not do the expected. Joining targets
 the thread and not the task, but the thread is the one of the parent!
 Therefore joining a threadless child joins its parent.
 

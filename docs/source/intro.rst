@@ -9,7 +9,7 @@ and allows to organize tasks and run them parallel.
 You can:
 
 - build chains of tasks, which execute tasks sequentially in a single thread
-- build parent child dependencies, which allows to construct trees of tasks
+- build parent-child relationships, which allows to construct trees of tasks
 - stop tasks, which also stops the execution of child tasks
 - continue tasks, which also continues the execution of child tasks
 - restart finished or stopped tasks
@@ -18,8 +18,8 @@ You can:
 A thread_task is not like a function, it doesn't return results. Think
 of it as an instruction to a reliable but independently acting
 person. If feedback is needed, this can be done by callback
-functions. You can also use mutable objects, which can be shared by
-multiple tasks.
+functions. Communication between tasks is possible by mutable objects,
+which can be red or changed by multiple tasks.
 
 The following task types exist:
 

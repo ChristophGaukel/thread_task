@@ -124,6 +124,7 @@ def test_periodic(capsys):
             args_final=(ts, 'child_finished')
         ).start,
         args=(.2,),
+        kwargs={'thread': False},
         num=2
     )
     t.action_start = print_it
@@ -180,7 +181,7 @@ def test_repeated(capsys):
             args_cont=(ts, 'child_continued'),
             action_final=print_it,
             args_final=(ts, 'child_finished')
-        ).start,
+        ),
         num=2
     )
     t.action_start = print_it

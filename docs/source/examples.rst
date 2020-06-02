@@ -200,12 +200,60 @@ unusable. You can't start them because they `know`, that they became
 links in a chain. If you prefer appending or concatenating, that's
 your choice.
 
+Sleeping
+--------
+
+Maybe, you build a chain of Tasks from some existing Tasks, but you
+need some additional timespan between them, then use Sleep, which is a
+subclass of Task and is similar to `time.sleep
+<https://docs.python.org/3.8/library/time.html#time.sleep>`_ but
+can be interrupted.
+
+.. code:: python3
+
+  from thread_task import Task, Sleep, concat
+  from datetime import datetime
+  from threading import current_thread
+  
+  
+  def print_it(txt: str):
+      print(
+          '{} {:10s}: {}'.format(
+              datetime.now().strftime('%H:%M:%S.%f'),
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  concat(
+      Task(
+          print_it,  # action
+          args=('hello,',)
+      ),
+      Sleep(2),
+      Task(
+          print_it,  # action
+          args=('world!',)
+      )
+  ).start()
+
+Sleep does, what its name says. It needs one positional argument, the
+duration of the sleeping in seconds. If you like, you can also make it
+a root link.
+
+In the program above Sleep is only an alternative to setting a
+duration. But think of a situation where you get prebuild tasks from
+somewhere and you put them together to a new chain of tasks, like you
+do with LEGO bricks. In these cases Sleep may be a helpfull chain
+link.
+
 
 Threadless Task
 ---------------
 
 Sometimes Tasks are used for organization, not for
-parallelization. For this situations, you can start a thread with the
+parallelization. For these situations, you can start a Task with the
 keyword argument **thread=False**.
 
 .. code:: python3
@@ -369,7 +417,7 @@ Any Task object in state STATE_STOPPED can be continued. You can even
 continue a Task in state STATE_TO_STOP, then calling
 :py:meth:`~thread_task.Task.cont` will internally join the currently
 running thread until the state changes to STATE_STOPPED. Calling
-method cont from STATE_FINISHED is also accepted. In this case, it
+method cont from STATE_FINISHED is also accepted. In that case, it
 silently does nothing.
 
 We append the following code to the :ref:`stopping <stopping_example>` example:
@@ -438,11 +486,10 @@ when calling method cont and you will see STATE_TO_CONTINUE.
 Periodic actions
 ----------------
 
-**Periodic** is a subclass of Task and allows to do things
-periodically.  With **intervall**, it has one more positional
-argument, which is the timespan between two executions of action. The
-keyword argument **num** limits the number of
-executions. Alternatively, the executions end, when action returns
+**Periodic** allows to do things periodically.  With **interval**, it
+has one more positional argument, which is the timespan between two
+executions of action. The keyword argument **num** limits the number
+of executions. Alternatively, the executions end, when action returns
 ``True``.
 
 .. code:: python
@@ -460,7 +507,7 @@ executions. Alternatively, the executions end, when action returns
   
       # speech
       Periodic(
-          2,  # intervall
+          2,  # interval
           print,  # action
           args=('bla',),
           kwargs={'end': '', 'flush': True},
@@ -507,16 +554,17 @@ reacted, which needed one second.
 Repeated actions
 ----------------
 
-**Repeated** is another subclass of Task and allows to do things
-multiple times. Different from Periodic, here action is deciding if
-and when to be called again. If action returns a positive number, this
-will become the delay before the next execution. When it returns
+**Repeated** is the baseclass of Task and Periodic. It allows to do
+things multiple times. Different from Periodic, here action is
+deciding if and when to be called again. This says: action does the
+timing! If action returns a positive number, this will become the
+delay between the current and the next execution. When it returns
 ``0``, it immediately will be called again and if it returns ``-1``,
 the loop ends. action may also return a bool, then ``True`` is like
 ``-1`` and ends the loop, ``False`` is like ``0``, the next calling
 will follow immediately. Also ``None`` is allowed to be returned and
-has the meaning of ``0``. Like Periodic, you can limit the
-number of executions with keyword argument **num**.
+has the meaning of ``0``. Like Periodic, you can limit the number of
+executions with keyword argument **num**.
 
 .. code:: python3
 
@@ -548,9 +596,10 @@ numbers, which become smaller and smaller in every calling.
 Setting an initial value ``5`` means, that the first
 calling of method step will return ``5``.
 
-Our Repeated object calls Accelerate's method step multiple times and
-its sleeping duration depends on the return values of method step. Per
-call, the delay becomes 1 sec. less.
+The Repeated object calls Accelerate's method step multiple times and
+its following delay depends on the return values of method step. Per
+call, the delay becomes 1 sec. less and when method step returns -1,
+the Repeated ends.
 
 The output was:
 
@@ -568,16 +617,126 @@ The output was:
 Tree structured Tasks
 ---------------------
 
-Task objects can not only be structured as chains, but also as
-trees. Tree structures allow parallel execution inside of Tasks. When
-a chain link of a Task object calls method **start** of another Task
-object, this creates a parent-child dependency between them and forms
-a tree structure of Task objects. The special benefit is, that any
-call of parent's methods **stop** or **cont** will be passed to the
-child. This allows to stop and continue the whole structure. We can
-encapsulate complex dependencies behind a very simple API and we use
-only four methods for its execution: start, stop, cont and join. All
-of them we have seen already.
+Task's methods **start**, **stop** and **cont** are callables and can
+be the action of another Task.
+
+.. code:: python3
+
+  from thread_task import Task, Periodic
+  from threading import current_thread
+  
+  
+  def print_it(txt):
+      print(
+          '{}: {}'.format(
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  Periodic(
+      1,
+      Task(
+          print_it,
+          args=('Here I am',)
+      ).start,
+      num=5
+  ).start()
+
+The output:
+
+.. code-block:: none
+
+  Thread-2: Here I am
+  Thread-3: Here I am
+  Thread-4: Here I am
+  Thread-5: Here I am
+  Thread-6: Here I am
+
+This is swatting flies with a sledgehammer. It creates 6 threads, one
+for the Periodic and five for the five Tasks. The Periodic becomes
+parent of five children, all of them with a very short livespan.
+
+A better, but still academic version runs the Tasks as threadless children:
+
+.. code:: python3
+
+  from thread_task import Task, Periodic
+  from threading import current_thread
+  
+  
+  def print_it(txt):
+      print(
+          '{}: {}'.format(
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  Periodic(
+      1,
+      Task(
+          print_it,
+          args=('Here I am',)
+      ),
+      num=5
+  ).start()
+
+The output:
+
+.. code-block:: none
+
+  Thread-1: Here I am
+  Thread-1: Here I am
+  Thread-1: Here I am
+  Thread-1: Here I am
+  Thread-1: Here I am
+
+Now it creates only one thread! If a Task (or a Periodic or a
+Repeated) object is argument action of another Task (or a Periodic or
+a Repeated) object, this is the syntactic short version of starting it
+with argument *thread=False*. This says, the long version of this
+program is:
+
+.. code:: python3
+
+  from thread_task import Task, Periodic
+  from threading import current_thread
+  
+  
+  def print_it(txt):
+      print(
+          '{}: {}'.format(
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  Periodic(
+      1,
+      Task(
+          print_it,
+          args=('Here I am',)
+      ).start,
+      kwargs={'thread': False},
+      num=5
+  ).start()
+  
+We see, Tasks can not only be structured as chains, but also as
+trees. If not started as threadless children, tree structures allow
+parallel executions of multiple children inside of Tasks. If a chain
+link of a Task object calls methods **start** or **cont** of another
+Task object, this creates a parent-child relation between them and
+forms a tree structure of Task objects. The special benefit is, that
+any call of parent's methods **stop** or **cont** will be passed to
+all still living children. This allows to stop and continue the whole
+structure by stopping or continuing the parent. We can encapsulate
+complex dependencies behind a simple API, which uses only four methods
+for their execution: start, stop, cont and join. All of them we have
+already seen.
 
 .. code:: python3
 
@@ -602,7 +761,7 @@ of them we have seen already.
   
   def set_data(data: dict, value: bool):
       data['switch'] = value
-      print_it('set switch to ' + str(value))
+      print_it('set switch ' + str(value))
   
   
   def get_data(data: dict) -> bool:
@@ -658,9 +817,9 @@ t_child when starting it.
 between t_child and t_parent. Function **set_data** writes values into
 the data object, function **get_data** reads them.  In our case,
 get_data is wrapped into a Periodic and will be called once per
-second.  Function get_data returns the value it finds, returning
-``True`` ends the Periodic. Function set_data is wrapped into t_child,
-a Task object that sets the data object to ``True``.
+second.  Function get_data returns the value it finds (returning
+``True`` ends the Periodic). Function set_data is wrapped into
+t_child, a Task object that sets the data object to ``True``.
 
 t_parent starts t_child with a delay of 4.5 sec. We added some text
 output to the Task objects, which help us to understand, what happens.
@@ -678,7 +837,7 @@ The output was:
   17:21:57.013476 Thread-3  : switch is False
   17:21:58.013728 Thread-3  : switch is False
   17:21:58.425146 Thread-4  : *** t_child has been started
-  17:21:58.425511 Thread-4  : set switch to True
+  17:21:58.425511 Thread-4  : set switch True
   17:21:58.425682 Thread-4  : *** t_child has finished
   17:21:59.013946 Thread-3  : switch is True
   17:21:59.014254 Thread-3  : *** t_parent has finished
@@ -693,8 +852,8 @@ the message about its starting appears late. This is because of the
 delay. Task t_child has to start 4.5 sec. after Task t_parent. And
 what about ``Thread-2``, did it exist? Yes it did! With starting
 t_child it was created, directly after ``Thread-1``, but after its
-creation it had to wait and nothing else. When Task t was told to
-stop, it directly called method stop of Task t_child and t_child
+creation it had to wait and nothing else. When Task t_parent was told
+to stop, it directly called method stop of Task t_child and t_child
 directly ended its waiting. Task t_child *knew*, that it had not yet
 started and therefore it *knew*, there was nothing to stop.
 
