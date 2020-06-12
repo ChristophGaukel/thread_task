@@ -308,3 +308,16 @@ def test_timing_03(capsys):
     captured = capsys.readouterr()
     assert captured.err == ''
     assert captured.out == '0.3:continued 0.4:hi_2 0.5:finished '
+
+
+def test_add(capsys):
+    '''overloaded add operator'''
+    t1 = Task(print, args=('hello,',))
+    t2 = Task(print, args=('world!',))
+    t = t1 + t2
+    t.start(thread=False)
+    assert t.state == STATE_FINISHED
+    assert t.activity == ACTIVITY_NONE
+    captured = capsys.readouterr()
+    assert captured.err == ''
+    assert captured.out == 'hello,\nworld!\n'

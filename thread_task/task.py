@@ -15,10 +15,15 @@ class Task(Repeated):
     def __init__(self, action: Callable, **kwargs):
         """
         Positional Arguments
+
           action
-            object which will be executed (e.g. a function).
+            object which will be executed (e.g. a function or a method).
+            Must be a callable or a task object
+            (e.g. Task, Repeated, Periodic). In case it is a task object,
+            it will be started as a threadless child.
 
         Keyword Arguments
+
           args: tuple=()
             argument list of action
           kwargs: dict={}

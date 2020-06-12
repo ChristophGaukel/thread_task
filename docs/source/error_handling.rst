@@ -128,8 +128,7 @@ then recusively do:
 - else if the current Task is a child Task: call the exception
   handler of the parent Task's root link.
 - else: call the default exception handler of the current chain link,
-  which does stopping the current Task, then raises the
-  exception.
+  which does stopping the current Task, then raise the exception.
 
 In other words: It climbs up the hierarchy of the structure. If, on
 its way, it finds an explicitly setted exc_handler, it calls it. If it

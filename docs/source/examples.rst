@@ -195,23 +195,15 @@ append. It's just another flavour and does the very same thing.
   ).start()
 
 The result is the same. In both cases the first Task is the one, which
-has been modified and can be started. The following ones are
-unusable. You can't start them because they `know`, that they became
-links in a chain. If you prefer appending or concatenating, that's
-your choice.
-
-Sleeping
---------
-
-Maybe, you build a chain of Tasks from some existing Tasks, but you
-need some additional timespan between them, then use Sleep, which is a
-subclass of Task and is similar to `time.sleep
-<https://docs.python.org/3.8/library/time.html#time.sleep>`_ but
-can be interrupted.
+has been modified and can be started. The following ones become
+unusable as executables. You can't start them because they `know`,
+that they became links in a chain. If you prefer appending or
+concatenating, that's your choice and if you don't like both of them,
+the overloaded add operator is your third option:
 
 .. code:: python3
 
-  from thread_task import Task, Sleep, concat
+  from thread_task import Task
   from datetime import datetime
   from threading import current_thread
   
@@ -226,12 +218,50 @@ can be interrupted.
       )
   
   
-  concat(
+  (
+      Task(
+          print_it,  # action
+          args=('hello,',),
+          duration=2
+      ) +
+      Task(
+          print_it,  # action
+          args=('world!',)
+      )
+  ).start()
+
+Sleeping
+--------
+
+Maybe, you build a chain of Tasks from some existing Tasks, but you
+need some additional timespan between them, then use Sleep, which is a
+subclass of Task and is similar to `time.sleep
+<https://docs.python.org/3.8/library/time.html#time.sleep>`_ but
+can be interrupted.
+
+.. code:: python3
+
+  from thread_task import Task, Sleep
+  from datetime import datetime
+  from threading import current_thread
+  
+  
+  def print_it(txt: str):
+      print(
+          '{} {:10s}: {}'.format(
+              datetime.now().strftime('%H:%M:%S.%f'),
+              current_thread().name,
+              txt
+          )
+      )
+  
+  
+  (
       Task(
           print_it,  # action
           args=('hello,',)
-      ),
-      Sleep(2),
+      ) +
+      Sleep(2) +
       Task(
           print_it,  # action
           args=('world!',)
@@ -245,7 +275,7 @@ a root link.
 In the program above Sleep is only an alternative to setting a
 duration. But think of a situation where you get prebuild tasks from
 somewhere and you put them together to a new chain of tasks, like you
-do with LEGO bricks. In these cases Sleep may be a helpfull chain
+do with LEGO bricks. In that cases Sleep may be a helpfull chain
 link.
 
 
@@ -258,7 +288,7 @@ keyword argument **thread=False**.
 
 .. code:: python3
 
-  from thread_task import Task, concat
+  from thread_task import Task
   from datetime import datetime
   from threading import current_thread
   
@@ -273,12 +303,12 @@ keyword argument **thread=False**.
       )
   
   
-  concat(
+  (
       Task(
           print_it,  # action
           args=('hello,',),
           duration=2
-      ),
+      ) +
       Task(
           print_it,  # action
           args=('world!',)
@@ -318,7 +348,7 @@ state **STATE_STOPPED**. Then, the Task's thread ends.
 
 .. code:: python3
 
-  from thread_task import Task, concat
+  from thread_task import Task
   from datetime import datetime
   from time import sleep
   from threading import current_thread
@@ -334,12 +364,12 @@ state **STATE_STOPPED**. Then, the Task's thread ends.
       )
   
   
-  t = concat(
+  t = (
       Task(
           print_it,  # action
           args=('hello,',),
           duration=2
-      ),
+      ) +
       Task(
           print_it,  # action
           args=('world!',)
@@ -494,16 +524,16 @@ of executions. Alternatively, the executions end, when action returns
 
 .. code:: python
 
-  from thread_task import concat, Task, Periodic
+  from thread_task import Task, Periodic
   
   
-  concat(
+  (
       # introduction
       Task(
           print,  # action
           args=('Help me to give an enthusiastic welcome to our speaker.',),
           duration=2
-      ),
+      ) +
   
       # speech
       Periodic(
@@ -512,11 +542,11 @@ of executions. Alternatively, the executions end, when action returns
           args=('bla',),
           kwargs={'end': '', 'flush': True},
           num=3
-      ),
+      ) +
       Task(
           print,  # action
           duration=1
-      ),
+      ) +
   
       # reaction
       Task(

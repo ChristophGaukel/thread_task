@@ -7,9 +7,9 @@ from numbers import Number
 
 
 class Periodic(Repeated):
-    """
+    '''
     Uses multithreading for periodic actions.
-    """
+    '''
 
     def __init__(
             self,
@@ -19,18 +19,27 @@ class Periodic(Repeated):
     ):
         """
         Positional Arguments
-          interval
-            interval between two calls of action (in seconds)
-          action
-            object, which is repeatedly called (e.g. a function)
 
-            Must return a bool or None:
+          interval
+            interval between two successive calls of action (in seconds)
+          action
+            object, which is repeatedly called (e.g. a function).
+            Must be a callable or a task object
+            (e.g. Task, Repeated, Periodic).
+
+            If action is a callabale, it must return a bool, None or a task
               True
                 ends the loop
               False, None
                 next call will follow (if not reached limit of num)
+              action returns a task object
+                next method call will follow (if not reached limit of num)
+
+            If action is a task object:
+              is started as a threadless child
 
         Keyword Arguments
+
           args: tuple=()
             argument list of action
           kwargs: dict={}

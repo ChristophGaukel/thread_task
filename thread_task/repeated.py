@@ -32,10 +32,14 @@ class Repeated:
     def __init__(self, action: Callable, **kwargs):
         """
         Positional Arguments
+
           action
             object which will be executed (e.g. a function).
+            Must be a callable or a task object
+            (e.g. Task, Repeated, Periodic).
 
         Keyword Arguments
+
           args: tuple=()
             argument list of action
           kwargs: dict={}
@@ -202,6 +206,11 @@ class Repeated:
             isinstance(self._exc_handler, Callable)
         ), 'exc needs to be a callable'
 
+    def __add__(self, other: 'Repeated'):
+        assert isinstance(other, Repeated), \
+            'only thread task objects can be added'
+        return self.append(other)
+
     @property
     def lock(self) -> Lock:
         """
@@ -259,9 +268,6 @@ class Repeated:
             "only root tasks can be asked about their children"
         with self._lock:
             children = tuple(self._children)
-            threadless_child = self._threadless_child
-        if threadless_child is not None:
-            children = children + (threadless_child,)
         return children
 
     @property
@@ -626,7 +632,7 @@ class Repeated:
             raise exc
 
     def append(self, *tasks, copy=False) -> 'Repeated':
-        """appends a task or a chain of tasks (both must be root tasks)"""
+        '''appends tasks or chains of tasks (must be root tasks)'''
         assert self._root is self, 'appending to root tasks only'
         assert self._state in (
             STATE_INIT,
@@ -635,6 +641,8 @@ class Repeated:
         ), 'root task is currently executed'
 
         for task in tasks:
+            assert isinstance(task, Repeated), \
+                'only thread task objects can be appended'
             assert task._root is task, 'append root tasks only'
             assert task._state in (
                 STATE_INIT,
@@ -887,8 +895,6 @@ class Repeated:
                 not_stopped.append(task)
             task.lock.release()
 
-        if self._threadless_child is not None:
-            test_not_stopped(self._threadless_child)
         for task in self._children:
             test_not_stopped(task)
 
@@ -997,8 +1003,7 @@ class Repeated:
 
         if (
             self._current is None and
-            not self._children and
-            self._threadless_child is None or
+            not self._children or
             self._restart
         ):
             self._time_called_start = self._time_called_cont
@@ -1080,8 +1085,10 @@ class Repeated:
         self._thread_cont = None
 
         # continue children tasks
-        if self._children is not None:
+        if self._children:
             for task in self._children:
+                if task is self._threadless_child:
+                    continue
                 task.cont(_parent=self)
 
             if self._cont_join is not None:
@@ -1348,7 +1355,6 @@ class Repeated:
         elif (
                 self._next is None and
                 not self._root._children and
-                self._root._threadless_child is None and
                 not self._duration_rest and
                 self._gap is None and
                 (self._num is None or self._cnt == self._num) and
@@ -1390,6 +1396,8 @@ class Repeated:
         self._root._lock.release()
 
         for task in children:
+            if task is self._root._threadless_child:
+                continue
             task.join()
 
         self._root._lock.acquire()
@@ -1397,26 +1405,22 @@ class Repeated:
 
     def _parent_child_relation(self, thread: bool, _parent: 'Repeated'):
         with _parent._lock:
-            if not thread:
+            if thread and _parent._threadless_child is self._root:
+                _parent._threadless_child = None
+            elif not thread and _parent._threadless_child is not self._root:
                 _parent._threadless_child = self._root
-                if self._root in _parent._children:
-                    ind = _parent._children.index(self._root)
-                    _parent._children.pop(ind)
-            elif self._root in _parent._children:
-                pass
-            else:
+
+            if self._root not in _parent._children:
                 _parent._children.append(self._root)
-                if _parent._threadless_child is self._root:
-                    _parent._threadless_child = None
         self._root._parent = _parent
 
     def _cut_parent_child_relation(self):
         with self._root._parent._lock:
-            if self._root is self._root._parent._threadless_child:
-                self._root._parent._threadless_child = None
-            elif self._root in self._root._parent._children:
+            if self._root in self._root._parent._children:
                 ind = self._root._parent._children.index(self._root)
                 self._root._parent._children.pop(ind)
+                if self._root is self._root._parent._threadless_child:
+                    self._root._parent._threadless_child = None
             if self._root is self._root._parent._cont_join:
                 self._root._parent._cont_join = None
         self._root._parent = None
@@ -1438,11 +1442,8 @@ class Repeated:
         for child in self._children:
             with child._lock:
                 child._parent = None
-            child._lock.release()
         self._children = []
         if self._threadless_child is not None:
-            with self._threadless_child._lock:
-                self._threadless_child._parent = None
             self._threadless_child = None
         self._cont_join = None
         if self._parent is not None:

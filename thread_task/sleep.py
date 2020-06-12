@@ -12,10 +12,12 @@ class Sleep(Task):
     def __init__(self, seconds: Number, **kwargs):
         """
         Positional Arguments
+
           seconds
             duration of sleeping
 
         Keyword Arguments
+
           action_start: Callable=None
             object (f.i. a function),
             which is called when task is started.
