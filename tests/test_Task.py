@@ -28,15 +28,17 @@ def test_action_start(capsys):
     # without delay
     t = Task(
         print,
+        args=('started',),
+        kwargs={'end': ' '},
+    ) + Task(
+        print,
         args=('hello, world!',),
         kwargs={'end': ''},
-        action_start=print,
-        args_start=('started',),
-        kwargs_start={'end': ' '},
         action_stop=print,
         args_stop=(' stopped',),
         kwargs_stop={'end': ''}
-    ).start()
+    )
+    t.start()
     t.join()
     assert t.state == STATE_FINISHED
     captured = capsys.readouterr()
@@ -63,11 +65,13 @@ def test_action_final(capsys):
     t = Task(
         print,
         args=('hello, world!',),
-        kwargs={'end': ''},
-        action_final=print,
-        args_final=(' finished',),
-        kwargs_final={'end': ''}
-    ).start()
+        kwargs={'end': ''}
+    ) + Task(
+        print,
+        args=(' finished',),
+        kwargs={'end': ''}
+    )
+    t.start()
     t.join()
     captured = capsys.readouterr()
     assert t.state == STATE_FINISHED
@@ -83,11 +87,13 @@ def test_action_stop(capsys):
         duration=.1,
         action_stop=print,
         args_stop=(' stopped',),
-        kwargs_stop={'end': ''},
-        action_final=print,
-        args_final=(' finished',),
-        kwargs_final={'end': ''}
-    ).start()
+        kwargs_stop={'end': ''}
+    ) + Task(
+        print,
+        args=(' finished',),
+        kwargs={'end': ''}
+    )
+    t.start()
     sleep(.05)
     t.stop()
     t.join()
@@ -109,10 +115,11 @@ def test_action_cont(capsys):
         kwargs_stop={'end': ''},
         action_cont=print,
         args_cont=(' continued',),
-        kwargs_cont={'end': ''},
-        action_final=print,
-        args_final=(' finished',),
-        kwargs_final={'end': ''}
+        kwargs_cont={'end': ''}
+    ) + Task(
+        print,
+        args=(' finished',),
+        kwargs={'end': ''}
     )
     t.start().stop()
     t.join()
@@ -133,10 +140,11 @@ def test_action_cont(capsys):
         kwargs_stop={'end': ''},
         action_cont=print,
         args_cont=(' continued',),
-        kwargs_cont={'end': ''},
-        action_final=print,
-        args_final=(' finished',),
-        kwargs_final={'end': ''}
+        kwargs_cont={'end': ''}
+    ) + Task(
+        print,
+        args=(' finished',),
+        kwargs={'end': ''}
     )
     t.start().stop()
     t.join()
@@ -175,13 +183,16 @@ def test_timing_00(capsys):
 
     t = Task(
         print_it,
+        args=(ts, 'started')
+    ) + Task(
+        print_it,
         args=(ts, 'hello'),
-        action_start=print_it,
-        args_start=(ts, 'started'),
-        action_final=print_it,
-        args_final=(ts, 'finished'),
         duration=.1
-    ).start(.1).join()
+    ) + Task(
+        print_it,
+        args=(ts, 'finished')
+    )
+    t.start(.1).join()
     captured = capsys.readouterr()
     assert t.state == STATE_FINISHED
     assert captured.err == ''
@@ -195,12 +206,14 @@ def test_timing_01(capsys):
 
     t = Task(
         print_it,
+        args=(ts, 'started')
+    ) + Task(
+        print_it,
         args=(ts, 'hello'),
-        action_start=print_it,
-        args_start=(ts, 'started'),
-        action_final=print_it,
-        args_final=(ts, 'finished'),
         duration=.1
+    ) + Task(
+        print_it,
+        args=(ts, 'finished')
     )
     t.start(.2)
     sleep(.1)
@@ -224,16 +237,18 @@ def test_timing_02(capsys):
 
     t = Task(
         print_it,
+        args=(ts, 'started')
+    ) + Task(
+        print_it,
         args=(ts, 'hello'),
-        action_start=print_it,
-        args_start=(ts, 'started'),
         action_stop=print_it,
         args_stop=(ts, 'stopped'),
         action_cont=print_it,
         args_cont=(ts, 'continued'),
-        action_final=print_it,
-        args_final=(ts, 'finished'),
         duration=.2
+    ) + Task(
+        print_it,
+        args=(ts, 'finished')
     )
     t.start(.1)
     sleep(.2)
@@ -264,21 +279,25 @@ def test_timing_03(capsys):
     t = concat(
         Task(
             print_it,
+            args=(ts, 'started')
+        ),
+        Task(
+            print_it,
             args=(ts, 'hi_1'),
-            action_start=print_it,
-            args_start=(ts, 'started'),
             action_stop=print_it,
             args_stop=(ts, 'stopped'),
             action_cont=print_it,
             args_cont=(ts, 'continued'),
-            action_final=print_it,
-            args_final=(ts, 'finished'),
             duration=.2
         ),
         Task(
             print_it,
             args=(ts, 'hi_2'),
             duration=.1
+        ),
+        Task(
+            print_it,
+            args=(ts, 'finished')
         )
     )
     t.start(.1)

@@ -801,35 +801,41 @@ already seen.
   
   
   t_child = Task(
+      print_it,
+      args=('*** t_child has been started',)
+  ) + Task(
       set_data,
       args=(data, True),
-      action_start=print_it,
-      args_start=('*** t_child has been started',),
       action_stop=print_it,
       args_stop=('*** t_child has been stopped',),
       action_cont=print_it,
-      args_cont=('*** t_child has been continued',),
-      action_final=print_it,
-      args_final=('*** t_child has finished',)
+      args_cont=('*** t_child has been continued',)
+  ) + Task(
+      print_it,
+      args=('*** t_child has finished',)
   )
   
   t_parent = concat(
       Task(
+          print_it,
+          args=('*** t_parent has been started',)
+      ),
+      Task(
           t_child.start,
           args=(4.5,),
-          action_start=print_it,
-          args_start=('*** t_parent has been started',),
           action_stop=print_it,
           args_stop=('*** t_parent has been stopped',),
           action_cont=print_it,
-          args_cont=('*** t_parent has been continued',),
-          action_final=print_it,
-          args_final=('*** t_parent has finished',),
+          args_cont=('*** t_parent has been continued',)
       ),
       Periodic(
           1,
           get_data,
           args=(data,)
+      ),
+      Task(
+          print_it,
+          args=('*** t_parent has finished',)
       )
   )
   
@@ -837,8 +843,8 @@ already seen.
   sleep(1.5)
   t_parent.stop()
   sleep(3.5)
-  t_parent.cont()
-        
+  t_parent.cont()	  
+          
 This is a bit more complex than the other examples! We create 2 Task
 objects **t_child**, and **t_parent** and t_parent becomes parent of
 t_child when starting it.
@@ -856,7 +862,7 @@ output to the Task objects, which help us to understand, what happens.
 
 The output was:
 
-::
+.. code:: none
 
   17:21:50.419311 Thread-1  : *** t_parent has been started
   17:21:50.421131 Thread-1  : switch is False

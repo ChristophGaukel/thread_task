@@ -9,7 +9,8 @@ class Task(Repeated):
     """
     Uses multithreading for tasks or chains of tasks.
     The most simple case is a callable object.
-    Subsequent tasks or chains of tasks can be added with method append().
+    Subsequent tasks or chains of tasks can be added with method append()
+    or with the *+* operator.
     """
 
     def __init__(self, action: Callable, **kwargs):
@@ -28,12 +29,6 @@ class Task(Repeated):
             argument list of action
           kwargs: dict={}
             keyword arguments of action
-          action_start: Callable=None
-            object (f.i. a function), called when task is started.
-          args_start: tuple=()
-            argument list of action_start
-          kwargs_start: dict={}
-            keyword arguments of action_start
           action_stop: Callable=None
             object (e.g. a function), called when task is stopped.
           args_stop: tuple=()
@@ -46,12 +41,6 @@ class Task(Repeated):
             argument list of action_cont
           kwargs_cont: dict={}
             keyword arguments of action_cont
-          action_final: Callable=None
-            object (e.g. a function), called when task is finished.
-          args_final: tuple=()
-            argument list of action_final
-          kwargs_final: dict={}
-            keyword arguments of action_final
           duration: Number=None
             duration of task (if action returns earlier, task will wait)
           exc_handler: Callable=None

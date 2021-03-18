@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
-'''organize thread tasks, which can be stopped, continued and restarted.'''
+'''
+organize thread tasks, which can be stopped, continued and restarted.
+'''
 
 from typing import Callable
 from threading import Thread, Lock, Condition, current_thread
@@ -31,25 +32,19 @@ class Repeated:
 
     def __init__(self, action: Callable, **kwargs):
         """
-        Positional Arguments
+        Mandatory positional arguments
 
           action
             object which will be executed (e.g. a function).
             Must be a callable or a task object
             (e.g. Task, Repeated, Periodic).
 
-        Keyword Arguments
+        Optional keyword only arguments
 
           args: tuple=()
             argument list of action
           kwargs: dict={}
             keyword arguments of action
-          action_start: Callable=None
-            object (f.i. a function), called when Repeated is started.
-          args_start: tuple=()
-            argument list of action_start
-          kwargs_start: dict={}
-            keyword arguments of action_start
           action_stop: Callable=None
             object (e.g. a function), called when Repeated is stopped.
           args_stop: tuple=()
@@ -62,12 +57,6 @@ class Repeated:
             argument list of action_cont
           kwargs_cont: dict={}
             keyword arguments of action_cont
-          action_final: Callable=None
-            object (e.g. a function), called when Repeated is finished.
-          args_final: tuple=()
-            argument list of action_final
-          kwargs_final: dict={}
-            keyword arguments of action_final
           duration: Number=None
             duration of task (if recursions end earlier, Repeated will wait)
           num: int
@@ -94,18 +83,12 @@ class Repeated:
         self._cnt = 0  # number of action executions
 
         # the following are root only attributes
-        self._action_start = kwargs.pop('action_start', None)
-        self._args_start = kwargs.pop('args_start', ())
-        self._kwargs_start = kwargs.pop('kwargs_start', {})
         self._action_stop = kwargs.pop('action_stop', None)
         self._args_stop = kwargs.pop('args_stop', ())
         self._kwargs_stop = kwargs.pop('kwargs_stop', {})
         self._action_cont = kwargs.pop('action_cont', None)
         self._args_cont = kwargs.pop('args_cont', ())
         self._kwargs_cont = kwargs.pop('kwargs_cont', {})
-        self._action_final = kwargs.pop('action_final', None)
-        self._args_final = kwargs.pop('args_final', ())
-        self._kwargs_final = kwargs.pop('kwargs_final', {})
 
         self._state = STATE_INIT
         self._activity = ACTIVITY_NONE
@@ -127,7 +110,9 @@ class Repeated:
         self._parent = None  # parent task
         self._exc = None  # exception occured
         self._delay = None  # additional timespan in start or cont
-        # self._stay_child = None  # directive for stopping
+        
+        self._cont_data = None  # data used for continuation
+
         assert not kwargs, 'unknown keyword arguments: ' + str(kwargs.keys())
 
         assert isinstance(self._action, Callable) or \
@@ -152,15 +137,6 @@ class Repeated:
             self._kwargs['thread'] = False
 
         assert (
-            self._action_start is None or
-            isinstance(self._action_start, Callable)
-        ), "action_start needs to be a callable"
-        assert isinstance(self._args_start, tuple), \
-            'args_start needs to be a tuple'
-        assert isinstance(self._kwargs_start, dict), \
-            'kwargs_start needs to be a dictionary'
-
-        assert (
             self._action_stop is None or
             isinstance(self._action_stop, Callable)
         ), "action_stop needs to be a callable"
@@ -177,15 +153,6 @@ class Repeated:
             'args_cont needs to be a tuple'
         assert isinstance(self._kwargs_cont, dict), \
             'kwargs_cont needs to be a dictionary'
-
-        assert (
-            self._action_final is None or
-            isinstance(self._action_final, Callable)
-            ), "action_final needs to be a callable"
-        assert isinstance(self._args_final, tuple), \
-            'args_final needs to be a tuple'
-        assert isinstance(self._kwargs_final, dict), \
-            'kwargs_final needs to be a dictionary'
 
         assert (
             self._duration is None or
@@ -290,36 +257,10 @@ class Repeated:
         return self._activity
 
     @property
-    def action_start(self):
-        """
-        callable, which is called when starting the task
-        """
-        assert self._root is self, \
-            'only root tasks can be asked about their action_start'
-        return self._action_start
-
-    @action_start.setter
-    def action_start(self, value: Callable):
-        self._root._lock.acquire()
-        assert value is None or isinstance(value, Callable), \
-            'action_start needs to be None or a callable'
-        assert self._state in (
-            STATE_INIT,
-            STATE_STOPPED,
-            STATE_FINISHED
-        ), 'task is currently executed'
-        assert self._root is self, \
-            'only root tasks allow to set their action_start'
-        self._action_start = value
-        self._root._lock.release()
-
-    @property
     def action_stop(self):
         """
         callable, which is called in case of stopping the task
         """
-        assert self._root is self, \
-            'only root tasks can be asked about their action_stop'
         return self._action_stop
 
     @action_stop.setter
@@ -334,6 +275,8 @@ class Repeated:
         ), 'task is currently executed'
         assert self._root is self, \
             'only root tasks allow to set their action_stop'
+        assert self._next is None, \
+            'only unlinked tasks allow to set their action_stop'
         self._action_stop = value
         self._root._lock.release()
 
@@ -342,8 +285,6 @@ class Repeated:
         """
         callable, which is called in case of continuing the task
         """
-        assert self._root is self, \
-            'only root tasks can be asked about their action_cont'
         return self._action_cont
 
     @action_cont.setter
@@ -358,55 +299,9 @@ class Repeated:
         ), 'task is currently executed'
         assert self._root is self, \
             'only root tasks allow to set their action_cont'
+        assert self._next is None, \
+            'only unlinked tasks allow to set their action_cont'
         self._action_cont = value
-        self._root._lock.release()
-
-    @property
-    def action_final(self):
-        """
-        callable, which is called when finishing the task
-        """
-        assert self._root is self, \
-            'only root tasks can be asked about their action_final'
-        return self._action_final
-
-    @action_final.setter
-    def action_final(self, value: Callable):
-        self._root._lock.acquire()
-        assert value is None or isinstance(value, Callable), \
-            'action_final needs to be None or a callable'
-        assert self._state in (
-            STATE_INIT,
-            STATE_STOPPED,
-            STATE_FINISHED
-        ), 'task is currently executed'
-        assert self._root is self, \
-            'only root tasks allow to set their action_final'
-        self._action_final = value
-        self._root._lock.release()
-
-    @property
-    def args_start(self):
-        """
-        arguments of action_start,
-        which is called when starting the task
-        """
-        assert self._root is self, \
-            'only root tasks can be asked about their args_start'
-        return self._args_start
-
-    @args_start.setter
-    def args_start(self, value: tuple):
-        self._root._lock.acquire()
-        assert isinstance(value, tuple), 'args_start needs to be a tuple'
-        assert self._root._state in (
-            STATE_INIT,
-            STATE_STOPPED,
-            STATE_FINISHED
-        ), 'task is currently executed'
-        assert self._root is self, \
-            'only root tasks allow to set their args_start'
-        self._args_start = value
         self._root._lock.release()
 
     @property
@@ -414,8 +309,6 @@ class Repeated:
         """
         arguments of action_stop, which is called in case of stopping the task
         """
-        assert self._root is self, \
-            'only root tasks can be asked about their args_stop'
         return self._args_stop
 
     @args_stop.setter
@@ -429,6 +322,8 @@ class Repeated:
         ), 'task is currently executed'
         assert self._root is self, \
             'only root tasks allow to set their args_stop'
+        assert self._next is None, \
+            'only unlinked tasks allow to set their args_stop'
         self._args_stop = value
         self._root._lock.release()
 
@@ -438,8 +333,6 @@ class Repeated:
         arguments of action_cont,
         which is called in case of continuing the task
         """
-        assert self._root is self, \
-            'only root tasks can be asked about their args_cont'
         return self._args_cont
 
     @args_cont.setter
@@ -453,56 +346,9 @@ class Repeated:
         ), 'task is currently executed'
         assert self._root is self, \
             'only root tasks allow to set their args_cont'
+        assert self._next is None, \
+            'only unlinked tasks allow to set their args_cont'
         self._args_cont = value
-        self._root._lock.release()
-
-    @property
-    def args_final(self):
-        """
-        arguments of action_cont,
-        which is called in case of continuing the task
-        """
-        assert self._root is self, \
-            'only root tasks can be asked about their args_final'
-        return self._args_final
-
-    @args_final.setter
-    def args_final(self, value: tuple):
-        self._root._lock.acquire()
-        assert isinstance(value, tuple), 'args_final needs to be a tuple'
-        assert self._root._state in (
-            STATE_INIT,
-            STATE_STOPPED,
-            STATE_FINISHED
-        ), 'task is currently executed'
-        assert self._root is self, \
-            'only root tasks allow to set their args_final'
-        self._args_final = value
-        self._root._lock.release()
-
-    @property
-    def kwargs_start(self):
-        """
-        keyword arguments of action_start,
-        which is called when starting the task
-        """
-        assert self._root is self, \
-            'only root tasks can be asked about their kwargs_start'
-        return self._kwargs_start
-
-    @kwargs_start.setter
-    def kwargs_start(self, value: dict):
-        self._root._lock.acquire()
-        assert isinstance(value, dict), \
-            'kwargs_start needs to be a dictionary'
-        assert self._root._state in (
-            STATE_INIT,
-            STATE_STOPPED,
-            STATE_FINISHED
-        ), 'task is currently executed'
-        assert self._root is self, \
-            'only root tasks allow to set their kwargs_start'
-        self._kwargs_start = value
         self._root._lock.release()
 
     @property
@@ -511,8 +357,6 @@ class Repeated:
         keyword arguments of action_stop,
         which is called in case of stopping the task
         """
-        assert self._root is self, \
-            'only root tasks can be asked about their kwargs_stop'
         return self._kwargs_stop
 
     @kwargs_stop.setter
@@ -527,6 +371,8 @@ class Repeated:
         ), 'task is currently executed'
         assert self._root is self, \
             'only root tasks allow to set their kwargs_stop'
+        assert self._next is None, \
+            'only unlinked tasks allow to set their kwargs_stop'
         self._kwargs_stop = value
         self._root._lock.release()
 
@@ -536,8 +382,6 @@ class Repeated:
         keyword arguments of action_cont,
         which is called in case of continuing the task
         """
-        assert self._root is self, \
-            'only root tasks can be asked about their kwargs_cont'
         return self._kwargs_cont
 
     @kwargs_cont.setter
@@ -552,32 +396,9 @@ class Repeated:
         ), 'task is currently executed'
         assert self._root is self, \
             'only root tasks allow to set their kwargs_cont'
+        assert self._next is None, \
+            'only unlinked tasks allow to set their kwargs_cont'
         self._kwargs_cont = value
-        self._root._lock.release()
-
-    @property
-    def kwargs_final(self):
-        """
-        keyword arguments of action_final,
-        which is called when finishing the task
-        """
-        assert self._root is self, \
-            'only root tasks can be asked about their kwargs_final'
-        return self._kwargs_final
-
-    @kwargs_final.setter
-    def kwargs_final(self, value: dict):
-        self._root._lock.acquire()
-        assert isinstance(value, dict), \
-            'kwargs_final needs to be a dictionary'
-        assert self._root._state in (
-            STATE_INIT,
-            STATE_STOPPED,
-            STATE_FINISHED
-        ), 'task is currently executed'
-        assert self._root is self, \
-            'only root tasks allow to set their kwargs_final'
-        self._kwargs_final = value
         self._root._lock.release()
 
     @property
@@ -804,8 +625,6 @@ class Repeated:
 
         # execution
         self._restart = False
-        if self._action_start is not None:
-            self._action_start(*self._args_start, **self._kwargs_start)
         self._state = STATE_STARTED
         self._time_called_stop = None
 
@@ -1076,8 +895,11 @@ class Repeated:
                     # TODO: explicit handling
                     raise RuntimeError('concurrent method calling')
 
-        if self._action_cont is not None:
-            self._action_cont(*self._args_cont, **self._kwargs_cont)
+        if self._cont_data['action_cont'] is not None:
+            self._cont_data['action_cont'](
+                    *self._cont_data['args_cont'],
+                    **self._cont_data['kwargs_cont']
+            )
 
         self._state = STATE_STARTED
         self._time_called_stop = None
@@ -1224,8 +1046,11 @@ class Repeated:
                     self._final()
                     return
 
-        # next chain link
-        if self._next:
+        if self._root._cont_join is not None:
+            # don't change chain link
+            self._final()
+        elif self._next:
+            # next chain link
             self._root._current = self._next
             if self._duration is not None:
                 self._root._current_scheduled += self._duration
@@ -1233,6 +1058,7 @@ class Repeated:
                 self._root._current_scheduled = time()
             self._next._execute()
         else:
+            # all done
             self._root._current = None
             self._root._current_scheduled = None
             self._final()
@@ -1328,6 +1154,7 @@ class Repeated:
 
         # regularly finished
         if self._root._state == STATE_STARTED and self._root._exc is None:
+            self._cont_data = None
             self._root._state = STATE_FINISHED
 
         # stopped in starting process
@@ -1335,6 +1162,9 @@ class Repeated:
             self._root._delay -= time() - self._root._time_called_start
             if self._root._delay < 0:
                 self._root._delay = None
+                self._root._cont_data = {
+                        'action_cont': None
+                }
             self._root._state = STATE_STOPPED
             if self._root._parent is not None and not self._root._stay_child:
                 self._cut_parent_child_relation()
@@ -1343,9 +1173,13 @@ class Repeated:
         # stopped in continuation process
         elif self._root._thread_cont is not None:
             # self._root._current = self
-            self._root._delay -= time() - self._root._time_called_cont
-            if self._root._delay < 0:
+            if self._root._delay is not None:
+                self._root._delay -= time() - self._root._time_called_cont
+            if self._root._delay is not None and self._root._delay < 0:
                 self._root._delay = None
+            self._root._cont_data = {
+                    'action_cont': None
+            }
             self._root._state = STATE_STOPPED
             if self._root._parent is not None and not self._root._stay_child:
                 self._cut_parent_child_relation()
@@ -1360,27 +1194,27 @@ class Repeated:
                 (self._num is None or self._cnt == self._num) and
                 self._root._exc is None
         ):
+            self._root._cont_data = None
             self._root._state = STATE_FINISHED
 
         # stopped and at least one action done
         else:
-
-            if self._root._action_stop is not None:
-                self._root._action_stop(
-                    *self._root._args_stop,
-                    **self._root._kwargs_stop
+            if self._action_stop is not None:
+                self._action_stop(
+                    *self._args_stop,
+                    **self._kwargs_stop
                 )
+            self._root._cont_data = {
+                    'action_cont': self._action_cont,
+                    'args_cont': self._args_cont,
+                    'kwargs_cont': self._kwargs_cont
+            }
             self._root._state = STATE_STOPPED
             if self._root._parent is not None and not self._root._stay_child:
                 self._cut_parent_child_relation()
             self._root._stay_child = None
 
         if self._root._state == STATE_FINISHED:
-            if self._root._action_final is not None:
-                self._root._action_final(
-                    *self._root._args_final,
-                    **self._root._kwargs_final
-                )
             self._root._prepare()
 
         self._root._lock.release()
@@ -1458,19 +1292,6 @@ class Repeated:
             self._current_scheduled = None
 
         if link:
-            del self._action_start
-            del self._args_start
-            del self._kwargs_start
-            del self._action_stop
-            del self._args_stop
-            del self._kwargs_stop
-            del self._action_cont
-            del self._args_cont
-            del self._kwargs_cont
-            del self._action_final
-            del self._args_final
-            del self._kwargs_final
-
             del self._state
             del self._activity
             del self._thread
@@ -1491,6 +1312,7 @@ class Repeated:
             del self._parent
             del self._exc
             del self._delay
+            del self._cont_data
 
         return self
 

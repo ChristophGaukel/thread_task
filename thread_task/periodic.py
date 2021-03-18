@@ -44,13 +44,6 @@ class Periodic(Repeated):
             argument list of action
           kwargs: dict={}
             keyword arguments of action
-          action_start: Callable=None
-            object (f.i. a function),
-            which is called when task is started.
-          args_start: tuple=()
-            argument list of action_start
-          kwargs_start: dict={}
-            keyword arguments of action_start
           action_stop: Callable=None
             object (e.g. a function), called when task is stopped.
           args_stop: tuple=()
@@ -63,12 +56,6 @@ class Periodic(Repeated):
             argument list of action_cont
           kwargs_cont: dict={}
             keyword arguments of action_cont
-          action_final: Callable=None
-            object (e.g. a function), called when task is finished.
-          args_final: tuple=()
-            argument list of action_final
-          kwargs_final: dict={}
-            keyword arguments of action_final
           num: int
             number of iterations
           duration: Number=None

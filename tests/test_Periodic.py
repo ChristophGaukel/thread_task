@@ -42,16 +42,19 @@ def test_standard(capsys):
 
     ts = Timespan()
 
-    t = Periodic(
+    t = Task(
+        print_it,
+        args=(ts, 'started')
+    ) + Periodic(
         .1,
         print_it,
         args=(ts, 'hi'),
         num=3,
-        action_start=print_it,
-        args_start=(ts, 'started'),
-        action_final=print_it,
-        args_final=(ts, 'finished'),
-    ).start().join()
+    ) + Task(
+        print_it,
+        args=(ts, 'finished')
+    )
+    t.start().join()
     captured = capsys.readouterr()
     assert t.state == STATE_FINISHED
     assert captured.err == ''
@@ -63,16 +66,19 @@ def test_threadless(capsys):
 
     ts = Timespan()
 
-    t = Periodic(
+    t = Task(
+        print_it,
+        args=(ts, 'started')
+    ) + Periodic(
         .1,
         print_it,
         args=(ts, 'hi'),
-        num=3,
-        action_start=print_it,
-        args_start=(ts, 'started'),
-        action_final=print_it,
-        args_final=(ts, 'finished'),
-    ).start(thread=False)
+        num=3
+    ) + Task(
+        print_it,
+        args=(ts, 'finished')
+    )
+    t.start(thread=False)
     captured = capsys.readouterr()
     assert t.state == STATE_FINISHED
     assert captured.err == ''
@@ -84,15 +90,18 @@ def test_threadless_child(capsys):
 
     ts = Timespan()
 
-    t = Periodic(
+    t = Task(
+        print_it,
+        args=(ts, 'started')
+    ) + Periodic(
         .1,
         Task(print_it, args=(ts, 'hi')),
-        num=3,
-        action_start=print_it,
-        args_start=(ts, 'started'),
-        action_final=print_it,
-        args_final=(ts, 'finished'),
-    ).start(thread=False)
+        num=3
+    ) + Task(
+        print_it,
+        args=(ts, 'finished')
+    )
+    t.start(thread=False)
     captured = capsys.readouterr()
     assert t.state == STATE_FINISHED
     assert captured.err == ''
@@ -104,16 +113,19 @@ def test_long_lasting(capsys):
 
     ts = Timespan()
 
-    t = Periodic(
+    t = Task(
+        print_it,
+        args=(ts, 'started')
+    ) + Periodic(
         .1,
         print_it_long_lasting,
         args=(ts, 'hi'),
-        num=3,
-        action_start=print_it,
-        args_start=(ts, 'started'),
-        action_final=print_it,
-        args_final=(ts, 'finished'),
-    ).start().join()
+        num=3
+    ) + Task(
+        print_it,
+        args=(ts, 'finished')
+    )
+    t.start().join()
     captured = capsys.readouterr()
     assert t.state == STATE_FINISHED
     assert captured.err == ''
@@ -125,17 +137,20 @@ def test_netto_time(capsys):
 
     ts = Timespan()
 
-    t = Periodic(
+    t = Task(
+        print_it,
+        args=(ts, 'started')
+    ) + Periodic(
         .1,
         print_it_long_lasting,
         args=(ts, 'hi'),
         num=3,
-        netto_time=True,
-        action_start=print_it,
-        args_start=(ts, 'started'),
-        action_final=print_it,
-        args_final=(ts, 'finished'),
-    ).start().join()
+        netto_time=True
+    ) + Task(
+        print_it,
+        args=(ts, 'finished')
+    )
+    t.start().join()
     captured = capsys.readouterr()
     assert t.state == STATE_FINISHED
     assert captured.err == ''

@@ -19,7 +19,7 @@ A thread_task is not like a function, it doesn't return results. Think
 of it as an instruction to a reliable but independently acting
 person. If feedback is needed, this can be done by callback
 functions. Communication between tasks is possible by mutable objects,
-which can be red or changed by multiple tasks.
+which can be read or changed by multiple tasks.
 
 The following task types exist:
 

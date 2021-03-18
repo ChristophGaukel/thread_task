@@ -36,13 +36,16 @@ def test_standard(capsys):
 
     ts = Timespan()
 
-    t = Sleep(
-        .1,
-        action_start=print_it,
-        args_start=(ts, 'started'),
-        action_final=print_it,
-        args_final=(ts, 'finished'),
-    ).start().join()
+    t = Task(
+        print_it,
+        args=(ts, 'started')
+    ) + Sleep(
+        .1
+    ) + Task(
+        print_it,
+        args=(ts, 'finished')
+    )
+    t.start().join()
     captured = capsys.readouterr()
     assert t.state == STATE_FINISHED
     assert captured.err == ''
@@ -54,12 +57,12 @@ def test_concat(capsys):
     ts = Timespan()
 
     t = concat(
+        Task(
+            print_it,
+            args=(ts, 'started')
+        ),
         Sleep(
-            .1,
-            action_start=print_it,
-            args_start=(ts, 'started'),
-            action_final=print_it,
-            args_final=(ts, 'finished'),
+            .1
         ),
         Task(
             print_it,
@@ -69,6 +72,10 @@ def test_concat(capsys):
         Task(
             print_it,
             args=(ts, 'world')
+        ),
+        Task(
+            print_it,
+            args=(ts, 'finished')
         )
     ).start(.1).join()
     captured = capsys.readouterr()
@@ -82,25 +89,43 @@ def test_cont(capsys):
     ts = Timespan()
 
     t = concat(
+        Task(
+                print_it,
+                args=(ts, 'started')
+        ),
         Sleep(
-            .2,
-            action_start=print_it,
-            args_start=(ts, 'started'),
-            action_stop=print_it,
-            args_stop=(ts, 'stopped'),
-            action_cont=print_it,
-            args_cont=(ts, 'continued'),
-            action_final=print_it,
-            args_final=(ts, 'finished'),
+                .2,
+                action_stop=print_it,
+                args_stop=(ts, '1st sleep stopped'),
+                action_cont=print_it,
+                args_cont=(ts, '1st sleep continued')
         ),
         Task(
-            print_it,
-            args=(ts, 'hello')
+                print_it,
+                args=(ts, 'hello'),
+                action_stop=print_it,
+                args_stop=(ts, 'hello stopped'),
+                action_cont=print_it,
+                args_cont=(ts, 'hello continued')
         ),
-        Sleep(.2),
+        Sleep(
+                .2,
+                action_stop=print_it,
+                args_stop=(ts, '2nd sleep stopped'),
+                action_cont=print_it,
+                args_cont=(ts, '2nd sleep continued')
+        ),
         Task(
-            print_it,
-            args=(ts, 'world')
+                print_it,
+                args=(ts, 'world'),
+                action_stop=print_it,
+                args_stop=(ts, 'world stopped'),
+                action_cont=print_it,
+                args_cont=(ts, 'world continued')
+        ),
+        Task(
+                print_it,
+                args=(ts, 'finished')
         )
     ).start(.1).stop().join()
     assert t.state == STATE_STOPPED
@@ -117,7 +142,7 @@ def test_cont(capsys):
     assert t.state == STATE_STOPPED
     captured = capsys.readouterr()
     assert captured.err == ''
-    assert captured.out == '0.1:started 0.2:stopped '
+    assert captured.out == '0.1:started 0.2:1st sleep stopped '
 
     # restart from STATE_STOPPED
     t.start()
@@ -128,14 +153,14 @@ def test_cont(capsys):
     assert t.state == STATE_STOPPED
     captured = capsys.readouterr()
     assert captured.err == ''
-    assert captured.out == '0.2:started 0.4:hello 0.4:stopped '
+    assert captured.out == '0.2:started 0.4:hello 0.4:2nd sleep stopped '
 
     t.cont().join()
     assert t.state == STATE_FINISHED
     assert t.activity == ACTIVITY_NONE
     captured = capsys.readouterr()
     assert captured.err == ''
-    assert captured.out == '0.4:continued 0.6:world 0.6:finished '
+    assert captured.out == '0.4:2nd sleep continued 0.6:world 0.6:finished '
 
     # restart from STATE_FINISHED
     t.start().join()
